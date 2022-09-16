@@ -88,7 +88,6 @@ pub fn Wrapper(comptime _: anytype) type {
 
             switch (T) {
                 napi.napi_value => res = val,
-                napi.napi_env => res = env,
                 void => return,
                 bool => try check(napi.napi_get_value_bool(env, val, &res)),
                 u8, u16 => @truncate(T, unwrap(u32, env, val)),
@@ -142,19 +141,42 @@ pub fn Wrapper(comptime _: anytype) type {
             return target;
         }
 
+        pub fn call(comptime R: type, env: napi.napi_env, fun: napi.napi_value, args: anytype) Error!R {
+            const Args = @TypeOf(args);
+            const fields = std.meta.fields(Args);
+
+            var argv: [fields.len]napi.napi_value = undefined;
+            inline for (fields) |f, i| {
+                argv[i] = try wrap(env, @field(args, f.name));
+            }
+
+            var res: napi.napi_value = undefined;
+            try check(napi.napi_call_function(env, try wrap(env, void{}), fun, fields.len, &argv, &res));
+            std.debug.print("call success\n", .{});
+            return try unwrap(R, env, res);
+        }
+
         // for exporting, comptime only
         pub fn wrapFn(comptime fun: anytype) napi.napi_callback {
             return &(struct {
                 fn call(env: napi.napi_env, cb_info: napi.napi_callback_info) callconv(.C) napi.napi_value {
                     const Args = std.meta.ArgsTuple(@TypeOf(fun.*));
-                    const fields = std.meta.fields(Args);
+                    comptime var fields = std.meta.fields(Args);
                     var args: Args = undefined;
+
+                    // napi_env special-case for callbacks
+                    if (fields.len > 0 and fields[0].field_type == napi.napi_env) {
+                        args.@"0" = env;
+                        fields = fields[1..];
+                    }
 
                     var argc: usize = fields.len;
                     var argv: [fields.len]napi.napi_value = undefined;
                     _ = napi.napi_get_cb_info(env, cb_info, &argc, &argv, null, null);
 
-                    std.debug.assert(argc == fields.len);
+                    if (argc != fields.len) {
+                        @panic("args");
+                    }
 
                     inline for (fields) |f, i| {
                         @field(args, f.name) = unwrap(f.field_type, env, argv[i]) catch @panic("TODO");
@@ -163,6 +185,10 @@ pub fn Wrapper(comptime _: anytype) type {
                     return wrap(env, @call(.{}, fun, args)) catch @panic("TODO");
                 }
             }).call;
+        }
+
+        pub fn throw(env: napi.napi_env, err: anyerror) void {
+            _ = napi.napi_throw_error(env, null, @ptrCast([*]const u8, @errorName(err)));
         }
     };
 }
