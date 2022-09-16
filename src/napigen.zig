@@ -34,29 +34,29 @@ pub usingnamespace Wrapper(.{});
 // TODO: support some per-type customization (hooks? nested-cfg-structs?)
 pub fn Wrapper(comptime _: anytype) type {
     return struct {
-        pub fn wrap(env: napi.napi_env, val: anytype) napi.napi_value {
+        pub fn wrap(env: napi.napi_env, val: anytype) Error!napi.napi_value {
             var res: napi.napi_value = undefined;
 
             switch (@TypeOf(val)) {
                 napi.napi_value => res = val,
-                napi.napi_callback => _ = napi.napi_create_function(env, null, napi.NAPI_AUTO_LENGTH, val, null, &res),
-                void => _ = napi.napi_get_undefined(env, &res),
-                bool => _ = napi.napi_get_boolean(env, val, &res),
-                u8, u16, u32 => _ = napi.napi_create_uint32(env, val, &res),
-                i8, i16, i32 => _ = napi.napi_create_int32(env, val, &res),
-                i64 => _ = napi.napi_create_int64(env, val, &res),
-                f16, f32, f64 => _ = napi.napi_create_double(env, val, &res),
-                []const u8 => _ = napi.napi_create_string_utf8(env, @ptrCast([*c]const u8, val), val.len, &res),
+                napi.napi_callback => try check(napi.napi_create_function(env, null, napi.NAPI_AUTO_LENGTH, val, null, &res)),
+                void => try check(napi.napi_get_undefined(env, &res)),
+                bool => try check(napi.napi_get_boolean(env, val, &res)),
+                u8, u16, u32 => try check(napi.napi_create_uint32(env, val, &res)),
+                i8, i16, i32 => try check(napi.napi_create_int32(env, val, &res)),
+                @TypeOf(0), i64 => try check(napi.napi_create_int64(env, val, &res)),
+                @TypeOf(0.0), f16, f32, f64 => try check(napi.napi_create_double(env, val, &res)),
+                []const u8 => try check(napi.napi_create_string_utf8(env, @ptrCast([*c]const u8, val), val.len, &res)),
                 else => |T| switch (@typeInfo(T)) {
                     .Optional => {
                         if (val) res = wrap(env, val) else _ = napi.napi_get_null(env, &res);
                     },
 
                     .Struct => |info| {
-                        _ = napi.napi_create_object(env, &res);
+                        try check(napi.napi_create_object(env, &res));
 
                         inline for (info.fields) |f| {
-                            _ = napi.napi_set_named_property(env, res, f.name ++ "", wrap(env, @field(val, f.name)));
+                            try check(napi.napi_set_named_property(env, res, f.name ++ "", try wrap(env, @field(val, f.name))));
                         }
                     },
 
@@ -67,29 +67,29 @@ pub fn Wrapper(comptime _: anytype) type {
             return res;
         }
 
-        pub fn unwrap(comptime T: type, env: napi.napi_env, val: napi.napi_value) T {
+        pub fn unwrap(comptime T: type, env: napi.napi_env, val: napi.napi_value) Error!T {
             var res: T = undefined;
 
             switch (T) {
                 void => return,
-                bool => _ = napi.napi_get_value_bool(env, val, &res),
+                bool => try check(napi.napi_get_value_bool(env, val, &res)),
                 u8, u16 => @truncate(T, unwrap(u32, env, val)),
-                u32 => _ = napi.napi_get_value_uint32(env, val, &res),
+                u32 => try check(napi.napi_get_value_uint32(env, val, &res)),
                 i8, i16 => @truncate(T, unwrap(i32, env, val)),
-                i32 => _ = napi.napi_get_value_int32(env, val, &res),
-                i64 => _ = napi.napi_get_value_int64(env, val, &res),
-                f16, f32 => @floatCast(T, unwrap(env, val)),
-                f64 => _ = napi.napi_get_value_double(env, val, &res),
+                i32 => try check(napi.napi_get_value_int32(env, val, &res)),
+                i64 => try check(napi.napi_get_value_int64(env, val, &res)),
+                f16, f32 => @floatCast(T, unwrap(f64, env, val)),
+                f64 => try check(napi.napi_get_value_double(env, val, &res)),
                 []const u8 => {
                     var len: usize = undefined;
-                    _ = napi.napi_get_value_string_utf8(env, val, null, 0, &len);
-                    var buf = TEMP.alloc(u8, len + 1) catch @panic("OOM");
-                    _ = napi.napi_get_value_string_utf8(env, val, @ptrCast([*c]u8, buf), buf.len, &len);
+                    try check(napi.napi_get_value_string_utf8(env, val, null, 0, &len));
+                    var buf = try TEMP.alloc(u8, len + 1);
+                    try check(napi.napi_get_value_string_utf8(env, val, @ptrCast([*c]u8, buf), buf.len, &len));
                     res = buf[0..len];
                 },
                 else => |T| switch (@typeInfo(T)) {
                     .Pointer => {
-                        _ = napi.napi_get_value_external(env, val, &res);
+                        try check(napi.napi_get_value_external(env, val, @ptrCast([*c]?*anyopaque, &res)));
                     },
                     else => @compileError("TODO " ++ @typeName(T)),
                 },
@@ -113,10 +113,10 @@ pub fn Wrapper(comptime _: anytype) type {
                     std.debug.assert(argc == fields.len);
 
                     inline for (fields) |f, i| {
-                        @field(args, f.name) = unwrap(f.field_type, env, argv[i]);
+                        @field(args, f.name) = unwrap(f.field_type, env, argv[i]) catch @panic("TODO");
                     }
 
-                    return wrap(env, @call(.{}, fun, args));
+                    return wrap(env, @call(.{}, fun, args)) catch @panic("TODO");
                 }
             }).call;
         }

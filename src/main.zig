@@ -14,5 +14,5 @@ export fn napi_register_module_v1(env: napigen.napi_env, _: napigen.napi_value) 
         .it_works = true,
         .hello = napigen.wrapFn(&hello),
         .add = napigen.wrapFn(&add),
-    });
+    }) catch @panic("err");
 }
