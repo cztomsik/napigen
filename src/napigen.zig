@@ -42,10 +42,10 @@ pub fn Wrapper(comptime _: anytype) type {
                 napi.napi_callback => _ = napi.napi_create_function(env, null, napi.NAPI_AUTO_LENGTH, val, null, &res),
                 void => _ = napi.napi_get_undefined(env, &res),
                 bool => _ = napi.napi_get_boolean(env, val, &res),
-                u32 => _ = napi.napi_create_uint32(env, val, &res),
-                i32 => _ = napi.napi_create_int32(env, val, &res),
+                u8, u16, u32 => _ = napi.napi_create_uint32(env, val, &res),
+                i8, i16, i32 => _ = napi.napi_create_int32(env, val, &res),
                 i64 => _ = napi.napi_create_int64(env, val, &res),
-                f64 => _ = napi.napi_create_double(env, val, &res),
+                f16, f32, f64 => _ = napi.napi_create_double(env, val, &res),
                 []const u8 => _ = napi.napi_create_string_utf8(env, @ptrCast([*c]const u8, val), val.len, &res),
                 else => |T| switch (@typeInfo(T)) {
                     .Optional => {
@@ -73,9 +73,12 @@ pub fn Wrapper(comptime _: anytype) type {
             switch (T) {
                 void => return,
                 bool => _ = napi.napi_get_value_bool(env, val, &res),
+                u8, u16 => @truncate(T, unwrap(u32, env, val)),
                 u32 => _ = napi.napi_get_value_uint32(env, val, &res),
+                i8, i16 => @truncate(T, unwrap(i32, env, val)),
                 i32 => _ = napi.napi_get_value_int32(env, val, &res),
                 i64 => _ = napi.napi_get_value_int64(env, val, &res),
+                f16, f32 => @floatCast(T, unwrap(env, val)),
                 f64 => _ = napi.napi_get_value_double(env, val, &res),
                 []const u8 => {
                     var len: usize = undefined;
