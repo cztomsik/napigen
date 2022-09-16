@@ -47,20 +47,29 @@ pub fn Wrapper(comptime _: anytype) type {
                 @TypeOf(0), i64 => try check(napi.napi_create_int64(env, val, &res)),
                 @TypeOf(0.0), f16, f32, f64 => try check(napi.napi_create_double(env, val, &res)),
                 []const u8 => try check(napi.napi_create_string_utf8(env, @ptrCast([*c]const u8, val), val.len, &res)),
-                else => |T| switch (@typeInfo(T)) {
-                    .Optional => {
-                        if (val) res = wrap(env, val) else _ = napi.napi_get_null(env, &res);
-                    },
+                else => |T| {
+                    if (comptime std.meta.trait.isZigString(T)) {
+                        return wrap(env, @as([]const u8, val));
+                    }
 
-                    .Struct => |info| {
-                        try check(napi.napi_create_object(env, &res));
+                    switch (@typeInfo(T)) {
+                        .Optional => {
+                            if (val)
+                                res = wrap(env, val)
+                            else
+                                try check(napi.napi_get_null(env, &res));
+                        },
 
-                        inline for (info.fields) |f| {
-                            try check(napi.napi_set_named_property(env, res, f.name ++ "", try wrap(env, @field(val, f.name))));
-                        }
-                    },
+                        .Struct => |info| {
+                            try check(napi.napi_create_object(env, &res));
 
-                    else => @compileError("TODO " ++ @typeName(T)),
+                            inline for (info.fields) |f| {
+                                try check(napi.napi_set_named_property(env, res, f.name ++ "", try wrap(env, @field(val, f.name))));
+                            }
+                        },
+
+                        else => @compileError("TODO " ++ @typeName(T)),
+                    }
                 },
             }
 
