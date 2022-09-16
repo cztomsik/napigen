@@ -52,6 +52,16 @@ pub fn Wrapper(comptime _: anytype) type {
                         return wrap(env, @as([]const u8, val));
                     }
 
+                    if (comptime std.meta.trait.isTuple(T)) {
+                        return objectAssign(env, try wrap(env, [_]void{}), val);
+                    }
+
+                    if (comptime std.meta.trait.isIndexable(T)) {
+                        try check(napi.napi_create_array(env, &res));
+                        for (val) |v, i| try check(napi.napi_set_element(env, res, @truncate(u32, i), try wrap(env, v)));
+                        return res;
+                    }
+
                     switch (@typeInfo(T)) {
                         .Optional => {
                             if (val)
@@ -60,12 +70,9 @@ pub fn Wrapper(comptime _: anytype) type {
                                 try check(napi.napi_get_null(env, &res));
                         },
 
-                        .Struct => |info| {
+                        .Struct => {
                             try check(napi.napi_create_object(env, &res));
-
-                            inline for (info.fields) |f| {
-                                try check(napi.napi_set_named_property(env, res, f.name ++ "", try wrap(env, @field(val, f.name))));
-                            }
+                            return objectAssign(env, res, val);
                         },
 
                         else => @compileError("TODO " ++ @typeName(T)),
@@ -80,6 +87,8 @@ pub fn Wrapper(comptime _: anytype) type {
             var res: T = undefined;
 
             switch (T) {
+                napi.napi_value => res = val,
+                napi.napi_env => res = env,
                 void => return,
                 bool => try check(napi.napi_get_value_bool(env, val, &res)),
                 u8, u16 => @truncate(T, unwrap(u32, env, val)),
@@ -105,6 +114,14 @@ pub fn Wrapper(comptime _: anytype) type {
             }
 
             return res;
+        }
+
+        fn objectAssign(env: napi.napi_env, target: napi.napi_value, source: anytype) Error!napi.napi_value {
+            inline for (std.meta.fields(@TypeOf(source))) |f| {
+                try check(napi.napi_set_named_property(env, target, f.name ++ "", try wrap(env, @field(source, f.name))));
+            }
+
+            return target;
         }
 
         // for exporting, comptime only
