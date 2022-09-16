@@ -7,10 +7,13 @@ and it's still a **work-in-progress**, but I think it might be already useful
 for somebody.
 
 ## Features
-- [x] primitives (`void`, `bool`, `u32`, `i32`, `i64`, `f64`)
+- [x] primitives (`void`, `bool`, `u8/u16/u32`, `i8/i16/i32`, `i64`, `f16/f32/f64`)
+- [x] strings (TODO: leaks memory)
+- [x] tuples, structs (value types)
+- [x] arrays/slices (wrap only)
 - [x] functions
-- [x] strings (TODO: works but it leaks memory ATM)
-- [ ] callbacks to JS (TODO)
+- [x] callbacks to JS
+- [ ] thread-local/thread-safe callbacks to JS (TODO)
 - [ ] classes (TODO)
 - [ ] struct ptrs (TODO)
 - [ ] hooks for customization (TODO)
