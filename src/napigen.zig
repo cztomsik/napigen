@@ -106,6 +106,24 @@ pub fn Wrapper(comptime _: anytype) type {
                     res = buf[0..len];
                 },
                 else => |T| switch (@typeInfo(T)) {
+                    .Optional => |info| {
+                        var tp: napi.napi_valuetype = undefined;
+                        try check(napi.napi_typeof(env, val, &tp));
+
+                        if (tp == napi.napi_null)
+                            res = null
+                        else
+                            res = try unwrap(info.child, env, val);
+                    },
+
+                    .Struct => |info| {
+                        inline for (info.fields) |f| {
+                            var js_val: napi.napi_value = undefined;
+                            try check(napi.napi_get_named_property(env, val, f.name ++ "", &js_val));
+                            @field(res, f.name) = try unwrap(f.field_type, env, js_val);
+                        }
+                    },
+
                     .Pointer => {
                         try check(napi.napi_get_value_external(env, val, @ptrCast([*c]?*anyopaque, &res)));
                     },
