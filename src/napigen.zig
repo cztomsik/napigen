@@ -1,7 +1,23 @@
 const std = @import("std");
 const napi = @import("napi.zig");
 
+// export the whole napi
 pub usingnamespace napi;
+
+// define error types
+pub const NapiError = error{ napi_invalid_arg, napi_object_expected, napi_string_expected, napi_name_expected, napi_function_expected, napi_number_expected, napi_boolean_expected, napi_array_expected, napi_generic_failure, napi_pending_exception, napi_cancelled, napi_escape_called_twice, napi_handle_scope_mismatch, napi_callback_scope_mismatch, napi_queue_full, napi_closing, napi_bigint_expected, napi_date_expected, napi_arraybuffer_expected, napi_detachable_arraybuffer_expected, napi_would_deadlock };
+pub const Error = std.mem.Allocator.Error || NapiError;
+
+/// translate napi_status > 0 to NapiError with the same name
+pub fn check(status: napi.napi_status) Error!void {
+    if (status == napi.napi_ok) return;
+
+    inline for (comptime std.meta.fieldNames(NapiError)) |f| {
+        if (status == @field(napi, f)) return @field(NapiError, f);
+    }
+
+    @panic("unknown napi err");
+}
 
 // when (nested) function(s) are invoked, they might need to copy JS strings somewhere
 // so it can be passed to native, such strings are only valid during the invocation
@@ -12,9 +28,8 @@ pub usingnamespace napi;
 var TEMP_GPA = std.heap.GeneralPurposeAllocator(.{}){};
 pub const TEMP = TEMP_GPA.allocator();
 
-const DEFAULT_WRAPPER = Wrapper(.{});
-
-pub usingnamespace DEFAULT_WRAPPER;
+// export default wrap/unwrap/xxx impls
+pub usingnamespace Wrapper(.{});
 
 // TODO: support some per-type customization (hooks? nested-cfg-structs?)
 pub fn Wrapper(comptime _: anytype) type {
