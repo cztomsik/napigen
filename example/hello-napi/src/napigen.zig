@@ -44,15 +44,15 @@ pub fn capture_undefined(env: c.napi_env) !c.napi_value {
 
 pub fn set_instance_data(
     env: c.napi_env,
-    data: *c_void,
-    finalize_callback: fn (env: c.napi_env, data: ?*c_void, hint: ?*c_void) callconv(.C) void,
+    data: *anyopaque,
+    finalize_callback: fn (env: c.napi_env, data: ?*anyopaque, hint: ?*anyopaque) callconv(.C) void,
 ) !void {
     if (c.napi_set_instance_data(env, data, finalize_callback, null) != .napi_ok) {
         return throw(env, "Failed to initialize environment.");
     }
 }
 
-pub fn create_external(env: c.napi_env, context: *c_void) !c.napi_value {
+pub fn create_external(env: c.napi_env, context: *anyopaque) !c.napi_value {
     var result: c.napi_value = null;
     if (c.napi_create_external(env, context, null, null, &result) != .napi_ok) {
         return throw(env, "Failed to create external for client context.");
@@ -65,8 +65,8 @@ pub fn value_external(
     env: c.napi_env,
     value: c.napi_value,
     comptime error_message: [:0]const u8,
-) !?*c_void {
-    var result: ?*c_void = undefined;
+) !?*anyopaque {
+    var result: ?*anyopaque = undefined;
     if (c.napi_get_value_external(env, value, &result) != .napi_ok) {
         return throw(env, error_message);
     }
@@ -99,8 +99,8 @@ pub fn user_data_from_value(env: c.napi_env, value: c.napi_value) !UserData {
     };
 }
 
-pub fn globals(env: c.napi_env) !?*c_void {
-    var data: ?*c_void = null;
+pub fn globals(env: c.napi_env) !?*anyopaque {
+    var data: ?*anyopaque = null;
     if (c.napi_get_instance_data(env, &data) != .napi_ok) {
         return throw(env, "Failed to decode globals.");
     }
@@ -131,7 +131,7 @@ pub fn slice_from_value(
 
     if (!is_buffer) return throw(env, key ++ " must be a buffer");
 
-    var data: ?*c_void = null;
+    var data: ?*anyopaque = null;
     var data_length: usize = undefined;
     assert(c.napi_get_buffer_info(env, value, &data, &data_length) == .napi_ok);
 
@@ -367,7 +367,7 @@ fn create_buffer(
     value: []const u8,
     comptime error_message: [:0]const u8,
 ) !c.napi_value {
-    var data: ?*c_void = undefined;
+    var data: ?*anyopaque = undefined;
     var result: c.napi_value = undefined;
     if (c.napi_create_buffer(env, value.len, &data, &result) != .napi_ok) {
         return throw(env, error_message);
