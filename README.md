@@ -38,7 +38,7 @@ const lib = b.addSharedLibrary("hello-napi", "src/main.zig", .unversioned);
 lib.linker_allow_shlib_undefined = true;
 
 // add correct path to this lib
-lib.addPackage(.{ .name = "napigen", .path = "libs/napigen/napigen.zig" });
+lib.addPackagePath("napigen", "libs/napigen/src/napigen.zig");
 
 lib.setBuildMode(mode);
 lib.install();
