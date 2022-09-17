@@ -1,0 +1,23 @@
+{
+  "name": "zig-napigen",
+  "version": "1.0.0",
+  "description": "Automatic N-API bindings for any Zig project.",
+  "main": "index.js",
+  "bin": {
+    "zig-napigen": "bin/hello.js"
+  },
+  "scripts": {
+    "dev": "bin/index.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fwx5618177/zig-napigen.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/fwx5618177/zig-napigen/issues"
+  },
+  "homepage": "https://github.com/fwx5618177/zig-napigen#readme"
+}

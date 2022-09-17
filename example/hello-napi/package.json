@@ -1,0 +1,14 @@
+{
+  "name": "hello-napi",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "preinstall": "./start.sh",
+    "zig-build": "ZIG_SYSTEM_LINKER_HACK=1 zig build-lib -mcpu=baseline -OReleaseSmall -dynamic -lc -isystem deps/node-$(node --version)/include/node src/main.zig -fallow-shlib-undefined -femit-bin=dist/lib.node",
+    "build": "mkdir -p dist && npm run zig-build"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}

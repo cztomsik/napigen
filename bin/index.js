@@ -1,4 +1,4 @@
-const lib = require('./hello-napi.node')
+const lib = require('./hello-napi.node');
 
 // prints true
 console.log(lib.it_works)
