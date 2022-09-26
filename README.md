@@ -1,6 +1,6 @@
 # zig-napigen
 
-Automatic N-API bindings for any Zig project.
+Automatic N-API bindings for your Zig project.
 
 **Disclaimer:** I did this as a PoC when I was in hospital/recovering
 and it's still a **work-in-progress**, but I think it might be already useful
@@ -38,7 +38,7 @@ const lib = b.addSharedLibrary("hello-napi", "src/main.zig", .unversioned);
 lib.linker_allow_shlib_undefined = true;
 
 // add correct path to this lib
-lib.addPackagePath("napigen", "libs/napigen/src/napigen.zig");
+lib.addPackagePath("napigen", "libs/napigen/napigen.zig");
 
 lib.setBuildMode(mode);
 lib.install();

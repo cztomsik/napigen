@@ -144,7 +144,6 @@ pub fn call(comptime R: type, env: napi.napi_env, fun: napi.napi_value, args: an
 
     var res: napi.napi_value = undefined;
     try check(napi.napi_call_function(env, try wrap(env, void{}), fun, fields.len, &argv, &res));
-    std.debug.print("call success\n", .{});
     return try unwrap(R, env, res);
 }
 
