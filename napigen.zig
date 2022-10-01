@@ -18,10 +18,19 @@ pub fn check(status: napi.napi_status) Error!void {
     }
 }
 
-// strings and other allocations are only valid during the function call
-// TODO: opt-arena, init if empty, delete at the end of scope
+pub const allocator = std.heap.c_allocator;
+
+// TODO: strings are only valid during the function call
+// threadlocal var arena: ?std.heap.ArenaAllocator = null;
 var TEMP_GPA = std.heap.GeneralPurposeAllocator(.{}){};
 pub const TEMP = TEMP_GPA.allocator();
+
+// TODO: per-env instance state (napi_set_instance_data)
+var refs = std.AutoHashMap(*anyopaque, napi.napi_ref).init(allocator);
+
+fn deleteRef(_: napi.napi_env, _: ?*anyopaque, ptr: ?*anyopaque) callconv(.C) void {
+    _ = refs.remove(ptr.?);
+}
 
 pub const Context = struct {
     env: napi.napi_env,
@@ -34,12 +43,12 @@ pub const Context = struct {
     pub fn read(self: *Self, comptime T: type, val: napi.napi_value) Error!T {
         // TODO: custom mappings
 
+        if (comptime trait.isPtrTo(.Fn)(T)) return self.readFnPtr(T, val);
         if (comptime trait.isZigString(T)) return self.readString(val);
         if (comptime trait.is(.Optional)(T)) @compileError("TODO");
         if (comptime trait.isTuple(T)) return self.readTuple(T, val);
         if (comptime trait.is(.Struct)(T)) return self.readStruct(T, val);
-        if (comptime trait.is(.Pointer)(T)) return self.readExternal(@TypeOf(val.*), val);
-        // isXxx
+        if (comptime trait.is(.Pointer)(T)) return self.readPtr(std.meta.Child(T), val);
 
         return self.readPrimitive(T, val);
     }
@@ -49,12 +58,12 @@ pub const Context = struct {
 
         // TODO: custom mappings
 
-        if (comptime trait.isPtrTo(.Fn)(T)) return self.writeFn(val);
+        if (comptime trait.isPtrTo(.Fn)(T)) return self.writeFnPtr(val);
         if (comptime trait.isZigString(T)) return self.writeString(val);
         if (comptime trait.is(.Optional)(T)) @compileError("TODO");
         if (comptime trait.isTuple(T)) return self.writeTuple(val);
         if (comptime trait.is(.Struct)(T)) return self.writeStruct(val);
-        if (comptime trait.is(.Pointer)(T)) return self.readExternal(@TypeOf(val.*), val);
+        if (comptime trait.is(.Pointer)(T)) return self.writePtr(val);
 
         return self.writePrimitive(val);
     }
@@ -131,15 +140,24 @@ pub const Context = struct {
         return res;
     }
 
-    pub fn readExternal(self: *Self, comptime T: type, val: napi.napi_value) Error!*T {
+    pub fn readPtr(self: *Self, comptime T: type, val: napi.napi_value) Error!*T {
         var res: *T = undefined;
-        try check(napi.napi_get_value_external(self.env, val, &res));
+        try check(napi.napi_unwrap(self.env, val, @ptrCast([*c]?*anyopaque, &res)));
         return res;
     }
 
-    pub fn writeExternal(self: *Self, val: anytype) Error!napi.napi_value {
+    pub fn writePtr(self: *Self, val: anytype) Error!napi.napi_value {
         var res: napi.napi_value = undefined;
-        try check(napi.napi_create_external(self.env, val, &res));
+
+        if (refs.get(val)) |ref| {
+            try check(napi.napi_get_reference_value(self.env, ref, &res));
+        } else {
+            var ref: napi.napi_ref = undefined;
+            try check(napi.napi_create_object(self.env, &res));
+            try check(napi.napi_wrap(self.env, res, val, &deleteRef, val, &ref));
+            try refs.put(val, ref);
+        }
+
         return res;
     }
 
@@ -157,30 +175,23 @@ pub const Context = struct {
         return res;
     }
 
-    pub fn call(self: *Self, comptime R: type, fun: napi.napi_value, args: anytype) Error!R {
-        const Args = @TypeOf(args);
-        const fields = std.meta.fields(Args);
-
-        var argv: [fields.len]napi.napi_value = undefined;
-        inline for (fields) |f, i| {
-            argv[i] = try self.write(@field(args, f.name));
-        }
-
-        var res: napi.napi_value = undefined;
-        try check(napi.napi_call_function(self.env, try self.write(void{}), fun, fields.len, &argv, &res));
-        return try self.read(R, res);
+    pub fn readFnPtr(_: *Self, comptime T: type, _: napi.napi_value) Error!T {
+        @compileError("reading fn ptrs is not supported");
     }
 
-    pub fn writeFn(self: *Self, fun: anytype) Error!napi.napi_value {
+    pub fn writeFnPtr(self: *Self, fun: anytype) Error!napi.napi_value {
         var res: napi.napi_value = undefined;
-        try check(napi.napi_create_function(
-            self.env,
-            null,
-            napi.NAPI_AUTO_LENGTH,
-            self.trampoline(std.meta.Child(@TypeOf(fun))),
-            @ptrCast(?*const anyopaque, fun),
-            &res,
-        ));
+        const ptr = @intToPtr(*anyopaque, @ptrToInt(fun));
+
+        if (refs.get(ptr)) |ref| {
+            try check(napi.napi_get_reference_value(self.env, ref, &res));
+        } else {
+            var ref: napi.napi_ref = undefined;
+            try check(napi.napi_create_function(self.env, null, napi.NAPI_AUTO_LENGTH, self.trampoline(std.meta.Child(@TypeOf(fun))), ptr, &res));
+            try check(napi.napi_add_finalizer(self.env, res, null, &deleteRef, ptr, &ref));
+            try refs.put(ptr, ref);
+        }
+
         return res;
     }
 
@@ -203,7 +214,8 @@ pub const Context = struct {
                 ))) catch |e| return cx.throw(e);
 
                 if (argc != fields.len) {
-                    @panic("args");
+                    // TODO: throw
+                    std.debug.panic("Expected {d} args", .{fields.len});
                 }
 
                 inline for (std.meta.fields(std.meta.ArgsTuple(F))) |f, i| {
@@ -211,9 +223,33 @@ pub const Context = struct {
                     @field(args, f.name) = v;
                 }
 
-                return cx.write(@call(.{}, fun, args)) catch |e| return cx.throw(e);
+                var res = @call(.{}, fun, args);
+
+                if (comptime std.meta.trait.is(.ErrorUnion)(@TypeOf(res))) {
+                    if (res) |r| {
+                        return cx.write(r) catch |e| return cx.throw(e);
+                    } else |e| {
+                        return cx.throw(e);
+                    }
+                } else {
+                    return cx.write(res) catch |e| return cx.throw(e);
+                }
             }
         }).call;
+    }
+
+    pub fn call(self: *Self, comptime R: type, fun: napi.napi_value, args: anytype) Error!R {
+        const Args = @TypeOf(args);
+        const fields = std.meta.fields(Args);
+
+        var argv: [fields.len]napi.napi_value = undefined;
+        inline for (fields) |f, i| {
+            argv[i] = try self.write(@field(args, f.name));
+        }
+
+        var res: napi.napi_value = undefined;
+        try check(napi.napi_call_function(self.env, try self.write(void{}), fun, fields.len, &argv, &res));
+        return try self.read(R, res);
     }
 
     pub fn throw(self: *Self, err: anyerror) napi.napi_value {
