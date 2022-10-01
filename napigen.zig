@@ -45,7 +45,7 @@ pub const Context = struct {
 
         if (comptime trait.isPtrTo(.Fn)(T)) return self.readFnPtr(T, val);
         if (comptime trait.isZigString(T)) return self.readString(val);
-        if (comptime trait.is(.Optional)(T)) @compileError("TODO");
+        if (comptime trait.is(.Optional)(T)) return self.readOptional(std.meta.Child(T), val);
         if (comptime trait.isTuple(T)) return self.readTuple(T, val);
         if (comptime trait.is(.Struct)(T)) return self.readStruct(T, val);
         if (comptime trait.is(.Pointer)(T)) return self.readPtr(std.meta.Child(T), val);
@@ -60,7 +60,7 @@ pub const Context = struct {
 
         if (comptime trait.isPtrTo(.Fn)(T)) return self.writeFnPtr(val);
         if (comptime trait.isZigString(T)) return self.writeString(val);
-        if (comptime trait.is(.Optional)(T)) @compileError("TODO");
+        if (comptime trait.is(.Optional)(T)) return self.writeOptional(val);
         if (comptime trait.isTuple(T)) return self.writeTuple(val);
         if (comptime trait.is(.Struct)(T)) return self.writeStruct(val);
         if (comptime trait.is(.Pointer)(T)) return self.writePtr(val);
@@ -74,6 +74,7 @@ pub const Context = struct {
         switch (T) {
             napi.napi_value => res = val,
             void => return void{},
+            @TypeOf(null) => return null{},
             bool => try check(napi.napi_get_value_bool(self.env, val, &res)),
             u8, u16 => @truncate(T, self.read(u32, val)),
             u32 => try check(napi.napi_get_value_uint32(self.env, val, &res)),
@@ -94,6 +95,7 @@ pub const Context = struct {
         switch (@TypeOf(val)) {
             napi.napi_value => res = val,
             void => try check(napi.napi_get_undefined(self.env, &res)),
+            @TypeOf(null) => try check(napi.napi_get_null(self.env, &res)),
             bool => try check(napi.napi_get_boolean(self.env, val, &res)),
             u8, u16, u32 => try check(napi.napi_create_uint32(self.env, val, &res)),
             i8, i16, i32 => try check(napi.napi_create_int32(self.env, val, &res)),
@@ -103,6 +105,17 @@ pub const Context = struct {
         }
 
         return res;
+    }
+
+    pub fn readOptional(self: *Self, comptime T: type, val: napi.napi_value) Error!?T {
+        var t: napi.napi_valuetype = undefined;
+        try check(napi.napi_typeof(self.env, val, &t));
+
+        return if (t == napi.napi_null) null else self.read(T, val);
+    }
+
+    pub fn writeOptional(self: *Self, val: anytype) Error!napi.napi_value {
+        return if (val) |v| self.write(v) else self.write(null);
     }
 
     pub fn readStruct(self: *Self, comptime T: type, val: napi.napi_value) Error!T {
