@@ -202,25 +202,28 @@ pub const Context = struct {
             fn call(env: napi.napi_env, cb_info: napi.napi_callback_info) callconv(.C) napi.napi_value {
                 var cx = Context{ .env = env };
 
-                const Args = std.meta.ArgsTuple(F);
-                var args: Args = undefined;
-                const fields = std.meta.fields(Args);
-                var argc: usize = fields.len;
-                var argv: [fields.len]napi.napi_value = undefined;
+                var args: std.meta.ArgsTuple(F) = undefined;
+                var argc: usize = args.len;
+                var argv: [args.len]napi.napi_value = undefined;
                 var fun: *const F = undefined;
                 check(napi.napi_get_cb_info(env, cb_info, &argc, &argv, null, @ptrCast(
                     [*c]?*anyopaque,
                     &fun,
                 ))) catch |e| return cx.throw(e);
 
-                if (argc != fields.len) {
+                if (argc != args.len) {
                     // TODO: throw
-                    std.debug.panic("Expected {d} args", .{fields.len});
+                    std.debug.panic("Expected {d} args", .{argv.len});
                 }
 
-                inline for (std.meta.fields(std.meta.ArgsTuple(F))) |f, i| {
-                    const v = cx.read(f.field_type, argv[i]) catch |e| return cx.throw(e);
-                    @field(args, f.name) = v;
+                // TODO: compiler crashes on this
+                // inline for (std.meta.fields(@TypeOf(args))) |f, i| {
+                //     const v = cx.read(f.field_type, argv[i]) catch |e| return cx.throw(e);
+                //     @field(args, f.name) = v;
+                // }
+                inline for (comptime std.meta.fieldNames(@TypeOf(args))) |f, i| {
+                    const v = cx.read(@TypeOf(@field(args, f)), argv[i]) catch |e| return cx.throw(e);
+                    @field(args, f) = v;
                 }
 
                 var res = @call(.{}, fun, args);
