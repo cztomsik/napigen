@@ -23,9 +23,10 @@ Classes are also left out, at least for now.
 You can both accept and return pointers to struct types (or return structs with pointers) and
 you will always get the same JS object unless it has been already collected. Note that we don't
 call `deinit()` automatically and it is your responsibility to do this using `FinalizationRegistry`.
+
 Pointers are, of course, totally unsafe and you should be careful.
 
-## Function pointers (*T)
+## Function pointers (*const F)
 You can simply return &fun pointers from anywhere (including exports)
 and the JS function will again be the same, unless it has been already collected.
 
