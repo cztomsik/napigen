@@ -349,9 +349,7 @@ pub extern fn napi_remove_async_cleanup_hook(remove_handle: napi_async_cleanup_h
 pub const NULL = @import("std").zig.c_translation.cast(?*anyopaque, @as(c_int, 0));
 pub const NAPI_VERSION_EXPERIMENTAL = @import("std").zig.c_translation.promoteIntLiteral(c_int, 2147483647, .decimal);
 pub const NAPI_VERSION = @as(c_int, 8);
-pub const UINTPTR_MAX = @import("std").zig.c_translation.promoteIntLiteral(c_ulong, 18446744073709551615, .decimal);
-pub const SIZE_MAX = UINTPTR_MAX;
-pub const NAPI_AUTO_LENGTH = SIZE_MAX;
+pub const NAPI_AUTO_LENGTH = @import("std").math.maxInt(usize);
 pub const NAPI_MODULE_VERSION = @as(c_int, 1);
 pub const napi_env__ = struct_napi_env__;
 pub const napi_value__ = struct_napi_value__;
