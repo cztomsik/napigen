@@ -43,8 +43,11 @@ pub const Context = struct {
     pub fn read(self: *Self, comptime T: type, val: napi.napi_value) Error!T {
         // TODO: custom mappings
 
+        if (T == *Self) return self;
+        if (T == napi.napi_value) return val;
         if (comptime trait.isPtrTo(.Fn)(T)) return self.readFnPtr(T, val);
         if (comptime trait.isZigString(T)) return self.readString(val);
+        if (comptime trait.is(.Enum)(T)) return self.readEnum(T, val);
         if (comptime trait.is(.Optional)(T)) return self.readOptional(std.meta.Child(T), val);
         if (comptime trait.isTuple(T)) return self.readTuple(T, val);
         if (comptime trait.is(.Struct)(T)) return self.readStruct(T, val);
@@ -58,8 +61,11 @@ pub const Context = struct {
 
         // TODO: custom mappings
 
+        if (T == *Self) return self;
+        if (T == napi.napi_value) return val;
         if (comptime trait.isPtrTo(.Fn)(T)) return self.writeFnPtr(val);
         if (comptime trait.isZigString(T)) return self.writeString(val);
+        if (comptime trait.is(.Enum)(T)) return self.writeEnum(val);
         if (comptime trait.is(.Optional)(T)) return self.writeOptional(val);
         if (comptime trait.isTuple(T)) return self.writeTuple(val);
         if (comptime trait.is(.Struct)(T)) return self.writeStruct(val);
@@ -72,7 +78,6 @@ pub const Context = struct {
         var res: T = undefined;
 
         switch (T) {
-            napi.napi_value => res = val,
             void => return void{},
             @TypeOf(null) => return null{},
             bool => try check(napi.napi_get_value_bool(self.env, val, &res)),
@@ -93,7 +98,6 @@ pub const Context = struct {
         var res: napi.napi_value = undefined;
 
         switch (@TypeOf(val)) {
-            napi.napi_value => res = val,
             void => try check(napi.napi_get_undefined(self.env, &res)),
             @TypeOf(null) => try check(napi.napi_get_null(self.env, &res)),
             bool => try check(napi.napi_get_boolean(self.env, val, &res)),
@@ -105,6 +109,14 @@ pub const Context = struct {
         }
 
         return res;
+    }
+
+    pub fn readEnum(self: *Self, comptime T: type, val: napi.napi_value) Error!T {
+        return std.meta.intToEnum(T, self.read(u32, val));
+    }
+
+    pub fn writeEnum(self: *Self, val: anytype) Error!napi.napi_value {
+        return self.write(@as(u32, @enumToInt(val)));
     }
 
     pub fn readOptional(self: *Self, comptime T: type, val: napi.napi_value) Error!?T {
