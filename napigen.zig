@@ -81,12 +81,12 @@ pub const Context = struct {
             void => return void{},
             @TypeOf(null) => return null{},
             bool => try check(napi.napi_get_value_bool(self.env, val, &res)),
-            u8, u16 => @truncate(T, self.read(u32, val)),
+            u8, u16 => res = @truncate(T, self.read(u32, val)),
             u32 => try check(napi.napi_get_value_uint32(self.env, val, &res)),
-            i8, i16 => @truncate(T, self.read(i32, val)),
+            i8, i16 => res = @truncate(T, self.read(i32, val)),
             i32 => try check(napi.napi_get_value_int32(self.env, val, &res)),
             i64 => try check(napi.napi_get_value_int64(self.env, val, &res)),
-            f16, f32 => @floatCast(T, self.read(f64, val)),
+            f16, f32 => res = @floatCast(T, try self.read(f64, val)),
             f64 => try check(napi.napi_get_value_double(self.env, val, &res)),
             else => @compileError("No JS mapping for type " ++ @typeName(T)),
         }
@@ -282,7 +282,9 @@ pub const Context = struct {
 
     pub fn throw(self: *Self, err: anyerror) napi.napi_value {
         const msg = @ptrCast([*c]const u8, @errorName(err));
-        check(napi.napi_throw_error(self.env, null, msg)) catch |e| std.debug.panic("throw failed {s} {any}", .{ msg, e });
+        check(napi.napi_throw_error(self.env, null, msg)) catch |e| {
+            if (e != error.napi_pending_exception) std.debug.panic("throw failed {s} {any}", .{ msg, e });
+        };
         return self.write(void{}) catch @panic("throw return undefined");
     }
 };
