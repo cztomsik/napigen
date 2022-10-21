@@ -225,7 +225,7 @@ pub const Context = struct {
 
         return &(struct {
             fn call(env: napi.napi_env, cb_info: napi.napi_callback_info) callconv(.C) napi.napi_value {
-                var cx = Context{ .env = env };
+                var js = Context{ .env = env };
 
                 var args: std.meta.ArgsTuple(F) = undefined;
                 var argc: usize = args.len;
@@ -234,20 +234,20 @@ pub const Context = struct {
                 check(napi.napi_get_cb_info(env, cb_info, &argc, &argv, null, @ptrCast(
                     [*c]?*anyopaque,
                     &fun,
-                ))) catch |e| return cx.throw(e);
+                ))) catch |e| return js.throw(e);
 
                 if (argc != args.len) {
                     // TODO: throw
                     std.debug.panic("Expected {d} args", .{argv.len});
                 }
 
-                // TODO: compiler crashes on this
+                // TODO: compiler crashes on this (check again)
                 // inline for (std.meta.fields(@TypeOf(args))) |f, i| {
-                //     const v = cx.read(f.field_type, argv[i]) catch |e| return cx.throw(e);
+                //     const v = js.read(f.field_type, argv[i]) catch |e| return js.throw(e);
                 //     @field(args, f.name) = v;
                 // }
                 inline for (comptime std.meta.fieldNames(@TypeOf(args))) |f, i| {
-                    const v = cx.read(@TypeOf(@field(args, f)), argv[i]) catch |e| return cx.throw(e);
+                    const v = js.read(@TypeOf(@field(args, f)), argv[i]) catch |e| return js.throw(e);
                     @field(args, f) = v;
                 }
 
@@ -255,12 +255,12 @@ pub const Context = struct {
 
                 if (comptime std.meta.trait.is(.ErrorUnion)(@TypeOf(res))) {
                     if (res) |r| {
-                        return cx.write(r) catch |e| return cx.throw(e);
+                        return js.write(r) catch |e| return js.throw(e);
                     } else |e| {
-                        return cx.throw(e);
+                        return js.throw(e);
                     }
                 } else {
-                    return cx.write(res) catch |e| return cx.throw(e);
+                    return js.write(res) catch |e| return js.throw(e);
                 }
             }
         }).call;
