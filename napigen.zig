@@ -32,7 +32,7 @@ fn deleteRef(_: napi.napi_env, _: ?*anyopaque, ptr: ?*anyopaque) callconv(.C) vo
     _ = refs.remove(ptr.?);
 }
 
-pub const Context = struct {
+pub const JsContext = struct {
     env: napi.napi_env,
 
     // custom_hook, custom_read, custom_write fn ptrs?
@@ -45,15 +45,23 @@ pub const Context = struct {
 
         if (T == *Self) return self;
         if (T == napi.napi_value) return val;
-        if (comptime trait.isPtrTo(.Fn)(T)) return self.readFnPtr(T, val);
         if (comptime trait.isZigString(T)) return self.readString(val);
-        if (comptime trait.is(.Enum)(T)) return self.readEnum(T, val);
-        if (comptime trait.is(.Optional)(T)) return self.readOptional(std.meta.Child(T), val);
-        if (comptime trait.isTuple(T)) return self.readTuple(T, val);
-        if (comptime trait.is(.Struct)(T)) return self.readStruct(T, val);
-        if (comptime trait.is(.Pointer)(T)) return self.readPtr(std.meta.Child(T), val);
+        if (comptime trait.isPtrTo(.Fn)(T)) return self.readFnPtr(T, val);
 
-        return self.readPrimitive(T, val);
+        return switch (@typeInfo(T)) {
+            .Void => self.readVoid(val),
+            .Null => self.readNull(val),
+            .Bool => self.readBool(val),
+            .Int, .ComptimeInt => self.readInt(T, val),
+            .Float, .ComptimeFloat => self.readFloat(T, val),
+            .Enum => self.readEnum(T, val),
+            .Struct => if (std.meta.trait.isTuple(T)) self.readTuple(T, val) else self.readStruct(T, val),
+            .Optional => |info| self.readOptional(info.child, val),
+            .Pointer => |info| self.readPtr(info.child, val),
+            .ErrorUnion, .ErrorSet, .Union, .Array, .Vector, .EnumLiteral => |info| @compileError("TODO: " ++ @tagName(info)),
+            // Undefined, Type, Opaque, Fn, BoundFn, Frame, AnyFrame, NoReturn
+            else => @compileError("not supported"),
+        };
     }
 
     pub fn write(self: *Self, val: anytype) Error!napi.napi_value {
@@ -61,51 +69,110 @@ pub const Context = struct {
 
         // TODO: custom mappings
 
-        if (T == *Self) return self;
         if (T == napi.napi_value) return val;
-        if (comptime trait.isPtrTo(.Fn)(T)) return self.writeFnPtr(val);
         if (comptime trait.isZigString(T)) return self.writeString(val);
-        if (comptime trait.is(.Enum)(T)) return self.writeEnum(val);
-        if (comptime trait.is(.Optional)(T)) return self.writeOptional(val);
-        if (comptime trait.isTuple(T)) return self.writeTuple(val);
-        if (comptime trait.is(.Struct)(T)) return self.writeStruct(val);
-        if (comptime trait.is(.Pointer)(T)) return self.writePtr(val);
+        if (comptime trait.isPtrTo(.Fn)(T)) return self.writeFnPtr(val);
 
-        return self.writePrimitive(val);
+        return switch (@typeInfo(T)) {
+            .Void => self.writeVoid(),
+            .Null => self.writeNull(),
+            .Bool => self.writeBool(val),
+            .Int, .ComptimeInt => self.writeInt(val),
+            .Float, .ComptimeFloat => self.writeFloat(val),
+            .Enum => self.writeEnum(val),
+            .Struct => if (std.meta.trait.isTuple(T)) self.writeTuple(val) else self.writeStruct(val),
+            .Optional => self.writeOptional(val),
+            .Pointer => self.writePtr(val),
+            .ErrorUnion, .ErrorSet, .Union, .Array, .Vector, .EnumLiteral => |info| @compileError("TODO: " ++ @tagName(info)),
+            // Undefined, Type, Opaque, Fn, BoundFn, Frame, AnyFrame, NoReturn
+            else => @compileError("not supported"),
+        };
     }
 
-    pub fn readPrimitive(self: *Self, comptime T: type, val: napi.napi_value) Error!T {
+    pub fn readVoid(_: *Self, _: napi.napi_value) Error!void {
+        // TODO: I'm not sure yet, it might be consistent & convenient for prototyping
+        //       but it might also hide a potential bug
+        // return if (self.typeOf(val) == napi.napi_undefined) null else error.napi_invalid_arg;
+        @compileError("TODO: read void?");
+    }
+
+    pub fn writeVoid(self: *Self) Error!napi.napi_value {
+        var res: napi.napi_value = undefined;
+        try check(napi.napi_get_undefined(self.env, &res));
+        return res;
+    }
+
+    pub fn readNull(_: *Self, _: napi.napi_value) Error!null {
+        // TODO: I'm not sure yet, it might be consistent & convenient for prototyping
+        //       but it might also hide a potential bug
+        // return if (self.typeOf(val) == napi.napi_null) null else error.napi_invalid_arg;
+        @compileError("TODO: read null?");
+    }
+
+    pub fn writeNull(self: *Self) Error!napi.napi_value {
+        var res: napi.napi_value = undefined;
+        try check(napi.napi_get_null(self.env, &res));
+        return res;
+    }
+
+    pub fn readBool(self: *Self, val: napi.napi_value) Error!bool {
+        var res: bool = undefined;
+        try check(napi.napi_get_value_bool(self.env, val, &res));
+        return res;
+    }
+
+    pub fn writeBool(self: *Self, val: bool) Error!napi.napi_value {
+        var res: napi.napi_value = undefined;
+        try check(napi.napi_get_boolean(self.env, val, &res));
+        return res;
+    }
+
+    pub fn readInt(self: *Self, comptime T: type, val: napi.napi_value) Error!T {
         var res: T = undefined;
 
         switch (T) {
-            void => return void{},
-            @TypeOf(null) => return null{},
-            bool => try check(napi.napi_get_value_bool(self.env, val, &res)),
             u8, u16 => res = @truncate(T, self.read(u32, val)),
             u32 => try check(napi.napi_get_value_uint32(self.env, val, &res)),
             i8, i16 => res = @truncate(T, self.read(i32, val)),
             i32 => try check(napi.napi_get_value_int32(self.env, val, &res)),
             i64 => try check(napi.napi_get_value_int64(self.env, val, &res)),
-            f16, f32 => res = @floatCast(T, try self.read(f64, val)),
-            f64 => try check(napi.napi_get_value_double(self.env, val, &res)),
-            else => @compileError("No JS mapping for type " ++ @typeName(T)),
+            else => @compileError("TODO: arbitrary ints"),
         }
 
         return res;
     }
 
-    pub fn writePrimitive(self: *Self, val: anytype) Error!napi.napi_value {
+    pub fn writeInt(self: *Self, val: anytype) Error!napi.napi_value {
         var res: napi.napi_value = undefined;
 
         switch (@TypeOf(val)) {
-            void => try check(napi.napi_get_undefined(self.env, &res)),
-            @TypeOf(null) => try check(napi.napi_get_null(self.env, &res)),
-            bool => try check(napi.napi_get_boolean(self.env, val, &res)),
             u8, u16, u32 => try check(napi.napi_create_uint32(self.env, val, &res)),
             i8, i16, i32 => try check(napi.napi_create_int32(self.env, val, &res)),
             @TypeOf(0), i64 => try check(napi.napi_create_int64(self.env, val, &res)),
+            else => @compileError("TODO: arbitrary ints"),
+        }
+
+        return res;
+    }
+
+    pub fn readFloat(self: *Self, comptime T: type, val: napi.napi_value) Error!T {
+        var res: T = undefined;
+
+        switch (T) {
+            f16, f32 => res = @floatCast(T, try self.read(f64, val)),
+            f64 => try check(napi.napi_get_value_double(self.env, val, &res)),
+            else => @compileError("TODO: arbitrary floats"),
+        }
+
+        return res;
+    }
+
+    pub fn writeFloat(self: *Self, val: anytype) Error!napi.napi_value {
+        var res: napi.napi_value = undefined;
+
+        switch (@TypeOf(val)) {
             @TypeOf(0.0), f16, f32, f64 => try check(napi.napi_create_double(self.env, val, &res)),
-            else => |T| @compileError("No JS mapping for type " ++ @typeName(T)),
+            else => @compileError("TODO: arbitrary floats"),
         }
 
         return res;
@@ -117,17 +184,6 @@ pub const Context = struct {
 
     pub fn writeEnum(self: *Self, val: anytype) Error!napi.napi_value {
         return self.write(@as(u32, @enumToInt(val)));
-    }
-
-    pub fn readOptional(self: *Self, comptime T: type, val: napi.napi_value) Error!?T {
-        var t: napi.napi_valuetype = undefined;
-        try check(napi.napi_typeof(self.env, val, &t));
-
-        return if (t == napi.napi_null) null else self.read(T, val);
-    }
-
-    pub fn writeOptional(self: *Self, val: anytype) Error!napi.napi_value {
-        return if (val) |v| self.write(v) else self.write(null);
     }
 
     pub fn readStruct(self: *Self, comptime T: type, val: napi.napi_value) Error!T {
@@ -163,6 +219,14 @@ pub const Context = struct {
             try check(napi.napi_set_element(self.env, res, @truncate(u32, i), v));
         }
         return res;
+    }
+
+    pub fn readOptional(self: *Self, comptime T: type, val: napi.napi_value) Error!?T {
+        return if (self.isNull(val)) null else self.read(T, val);
+    }
+
+    pub fn writeOptional(self: *Self, val: anytype) Error!napi.napi_value {
+        return if (val) |v| self.write(v) else self.write(null);
     }
 
     pub fn readPtr(self: *Self, comptime T: type, val: napi.napi_value) Error!*T {
@@ -225,7 +289,7 @@ pub const Context = struct {
 
         return &(struct {
             fn call(env: napi.napi_env, cb_info: napi.napi_callback_info) callconv(.C) napi.napi_value {
-                var js = Context{ .env = env };
+                var js = JsContext{ .env = env };
 
                 var args: std.meta.ArgsTuple(F) = undefined;
                 var argc: usize = args.len;
@@ -266,7 +330,13 @@ pub const Context = struct {
         }).call;
     }
 
-    pub fn call(self: *Self, comptime R: type, fun: napi.napi_value, args: anytype) Error!R {
+    pub fn typeOf(self: *Self, val: napi.napi_value) Error!napi.napi_typeof {
+        var res: napi.napi_valuetype = undefined;
+        try check(napi.napi_typeof(self.env, val, &res));
+        return res;
+    }
+
+    pub fn call(self: *Self, fun: napi.napi_value, args: anytype) Error!napi.napi_value {
         const Args = @TypeOf(args);
         const fields = std.meta.fields(Args);
 
@@ -277,7 +347,7 @@ pub const Context = struct {
 
         var res: napi.napi_value = undefined;
         try check(napi.napi_call_function(self.env, try self.write(void{}), fun, fields.len, &argv, &res));
-        return try self.read(R, res);
+        return res;
     }
 
     pub fn throw(self: *Self, err: anyerror) napi.napi_value {
