@@ -32,11 +32,13 @@ and the JS function will again be the same, unless it has been already collected
 
 If you return an error from a function call, an exception will be thrown in JS.
 
-## Usage
+---
+
+## Example usage
 
 First, you need to create a new library:
 
-```
+```bash
 mkdir hello-napi
 cd hello-napi
 zig init-lib
@@ -44,7 +46,7 @@ zig init-lib
 
 Then change your `build.zig` to something like this:
 
-```
+```zig
 ...
 const lib = b.addSharedLibrary("hello-napi", "src/main.zig", .unversioned);
 
@@ -54,6 +56,9 @@ lib.linker_allow_shlib_undefined = true;
 // add correct path to this lib
 lib.addPackagePath("napigen", "libs/napigen/napigen.zig");
 
+// copy to a *.node file so we can require() it
+b.installLibFile(b.pathJoin(&.{ "zig-out/lib", lib.out_lib_filename }), "hello-napi.node");
+
 lib.setBuildMode(mode);
 lib.install();
 ...
@@ -61,7 +66,7 @@ lib.install();
 
 Then we can define some functions and the napi module itself in `src/main.zig`
 
-```
+```zig
 const std = @import("std");
 const napigen = @import("napigen.zig");
 
@@ -90,18 +95,10 @@ export fn napi_register_module_v1(env: napigen.napi_env, _: napigen.napi_value) 
 }
 ```
 
-Then we need to build the lib (and copy the result as `.node` file):
+In your `hello.js`, you can use it as expected:
 
-```
-zig build
-mv ./zig-out/lib/*hello-napi.* ./hello-napi.node
-node hello.js
-```
-
-and then finally, in your `hello.js`, you can use it as expected:
-
-```
-const lib = require('./hello-napi.node')
+```javascript
+const lib = require('./zig-out/lib/hello-napi.node')
 
 // prints true
 console.log(lib.it_works)
@@ -111,6 +108,12 @@ lib.hello("world")
 
 // prints 3
 console.log(lib.add(1, 2))
+```
+
+To build the lib and run the script:
+```bash
+zig build
+node hello.js
 ```
 
 ## License
