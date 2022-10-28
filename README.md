@@ -1,34 +1,42 @@
 # zig-napigen
-Automatic N-API bindings for your Zig project.
-
-**Disclaimer:** I did this as a PoC when I was in hospital/recovering
-and it's still a **work-in-progress**, but I think it might be already useful
-for somebody.
+Comptime N-API bindings for Zig.
 
 ## Features
-- [x] primitives (`void`, `bool`, `u8/u16/u32`, `i8/i16/i32`, `i64`, `f16/f32/f64`)
-- [x] strings (valid for the function scope)
-- [x] tuples, structs (value types), optionals
-- [x] struct ptrs, function ptrs (see below)
-- [ ] easy to customize
+- primitives, tuples, structs (value types), optionals
+- strings (valid for the function scope)
+- struct ptrs (see below)
+- functions (no classes, see below)
+- \+ whole N-API, so you can do pretty much anything
 
 ## Limited scope
-The API is intentionally both simple & thin and only the basic types are supported. The reason is
+The API is intentionally simple/thin and only basic types are supported. The reason is
 that it's often hard to guess how a certain thing should be mapped and it's much better if
-there's an easy way to override these default mappings or even use napi directly.
+there's an easy way to hook into the mapping process and/or use the N-API directly.
 
-Classes are also left out, at least for now.
+Specifically, there is no support for classes but it's possible to provide a JS constructor
+which will be called when a struct pointer is to be returned (see below).
+
+## Structs/tuples (value types)
+If you return a struct by value, it will be mapped to an anonymous object/array
+with all of the properties/elements mapped recursively. Similarly, if you accept a struct/tuple
+by value, it will be mapped back from JS to a respective native type.
+
+In both cases, you always get a copy, no changes are reflected to the other side.
 
 ## Struct pointers (*T)
-You can both accept and return pointers to struct types (or return structs with pointers) and
-you will always get the same JS object unless it has been already collected. Note that we don't
-call `deinit()` automatically and it is your responsibility to do this using `FinalizationRegistry`.
+On the other hand, if you return a pointer, you will only get an empty object with that pointer
+being wrapped inside. Then, if you pass this JS object to a function which accepts a pointer,
+it will be unwrapped back. It's a bit like if pointers were some kind of opaque object by default.
+
+You will get the same JS object for the same pointer, unless it has been already collected so whatever
+you store in it, will stay there and you can access it later.
+
 
 Pointers are, of course, totally unsafe and you should be careful.
 
-## Function pointers (*const F)
-You can simply return &fun pointers from anywhere (including exports)
-and the JS function will again be the same, unless it has been already collected.
+## Functions
+You can create JS function with `ctx.createFunction(&zig_fn)` and then you can export them
+just like any other value.
 
 If you return an error from a function call, an exception will be thrown in JS.
 

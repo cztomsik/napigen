@@ -25,20 +25,39 @@ pub const allocator = std.heap.c_allocator;
 var TEMP_GPA = std.heap.GeneralPurposeAllocator(.{}){};
 pub const TEMP = TEMP_GPA.allocator();
 
-// TODO: per-env instance state (napi_set_instance_data)
-var refs = std.AutoHashMap(*anyopaque, napi.napi_ref).init(allocator);
-
 fn deleteRef(_: napi.napi_env, _: ?*anyopaque, ptr: ?*anyopaque) callconv(.C) void {
-    _ = refs.remove(ptr.?);
+    _ = ptr;
+    @panic("TODO");
+    //_ = refs.remove(ptr.?);
 }
 
 pub const JsContext = struct {
     env: napi.napi_env,
-
-    // custom_hook, custom_read, custom_write fn ptrs?
-    // generated at comptime during init()?
+    refs: std.AutoHashMapUnmanaged(*anyopaque, napi.napi_ref) = .{},
+    constructors: std.StringHashMapUnmanaged(napi.napi_ref) = .{},
 
     const Self = @This();
+
+    pub fn init(env: napi.napi_env) Error!*Self {
+        var self = try allocator.create(Self);
+        try check(napi.napi_set_instance_data(env, self, finalize, null));
+        self.* = .{ .env = env };
+        return self;
+    }
+
+    pub fn deinit(self: *Self) void {
+        allocator.destroy(self);
+    }
+
+    fn getInstance(env: napi.napi_env) *Self {
+        var res: *Self = undefined;
+        check(napi.napi_get_instance_data(env, @ptrCast([*c]?*anyopaque, &res))) catch @panic("could not get JS context");
+        return res;
+    }
+
+    fn finalize(env: napi.napi_env, _: ?*anyopaque, _: ?*anyopaque) callconv(.C) void {
+        getInstance(env).deinit();
+    }
 
     pub fn read(self: *Self, comptime T: type, val: napi.napi_value) Error!T {
         // TODO: custom mappings
@@ -46,7 +65,6 @@ pub const JsContext = struct {
         if (T == *Self) return self;
         if (T == napi.napi_value) return val;
         if (comptime trait.isZigString(T)) return self.readString(val);
-        if (comptime trait.isPtrTo(.Fn)(T)) return self.readFnPtr(T, val);
 
         return switch (@typeInfo(T)) {
             .Void => self.readVoid(val),
@@ -58,9 +76,7 @@ pub const JsContext = struct {
             .Struct => if (std.meta.trait.isTuple(T)) self.readTuple(T, val) else self.readStruct(T, val),
             .Optional => |info| self.readOptional(info.child, val),
             .Pointer => |info| self.readPtr(info.child, val),
-            .ErrorUnion, .ErrorSet, .Union, .Array, .Vector, .EnumLiteral => |info| @compileError("TODO: " ++ @tagName(info)),
-            // Undefined, Type, Opaque, Fn, BoundFn, Frame, AnyFrame, NoReturn
-            else => @compileError("not supported"),
+            else => @compileError("reading " ++ @tagName(@typeInfo(T)) ++ " is not supported"),
         };
     }
 
@@ -71,7 +87,6 @@ pub const JsContext = struct {
 
         if (T == napi.napi_value) return val;
         if (comptime trait.isZigString(T)) return self.writeString(val);
-        if (comptime trait.isPtrTo(.Fn)(T)) return self.writeFnPtr(val);
 
         return switch (@typeInfo(T)) {
             .Void => self.writeVoid(),
@@ -83,9 +98,7 @@ pub const JsContext = struct {
             .Struct => if (std.meta.trait.isTuple(T)) self.writeTuple(val) else self.writeStruct(val),
             .Optional => self.writeOptional(val),
             .Pointer => self.writePtr(val),
-            .ErrorUnion, .ErrorSet, .Union, .Array, .Vector, .EnumLiteral => |info| @compileError("TODO: " ++ @tagName(info)),
-            // Undefined, Type, Opaque, Fn, BoundFn, Frame, AnyFrame, NoReturn
-            else => @compileError("not supported"),
+            else => @compileError("writing " ++ @tagName(@typeInfo(T)) ++ " is not supported"),
         };
     }
 
@@ -236,15 +249,17 @@ pub const JsContext = struct {
     }
 
     pub fn writePtr(self: *Self, val: anytype) Error!napi.napi_value {
+        if (comptime trait.isPtrTo(.Fn)(@TypeOf(val))) @compileError("use createFunction() to export functions");
+
         var res: napi.napi_value = undefined;
 
-        if (refs.get(val)) |ref| {
+        if (self.refs.get(val)) |ref| {
             try check(napi.napi_get_reference_value(self.env, ref, &res));
         } else {
             var ref: napi.napi_ref = undefined;
             try check(napi.napi_create_object(self.env, &res));
             try check(napi.napi_wrap(self.env, res, val, &deleteRef, val, &ref));
-            try refs.put(val, ref);
+            try self.refs.put(allocator, val, ref);
         }
 
         return res;
@@ -264,70 +279,56 @@ pub const JsContext = struct {
         return res;
     }
 
-    pub fn readFnPtr(_: *Self, comptime T: type, _: napi.napi_value) Error!T {
-        @compileError("reading fn ptrs is not supported");
+    pub fn useConstructor(self: *Self, comptime T: type, cons: napi.napi_value) Error!void {
+        var ref: napi.napi_ref = undefined;
+        try check(napi.napi_create_reference(self.env, cons, 1, &ref));
+        self.constructors.put(allocator, @typeName(T), ref);
     }
 
-    pub fn writeFnPtr(self: *Self, fun: anytype) Error!napi.napi_value {
+    pub fn createFunction(self: *Self, comptime fun: anytype) Error!napi.napi_value {
+        const F = @TypeOf(fun.*);
+        const cb = &(struct {
+            fn call(env: napi.napi_env, cb_info: napi.napi_callback_info) callconv(.C) napi.napi_value {
+                var js = getInstance(env);
+
+                return if (js.readArgs(std.meta.ArgsTuple(F), cb_info)) |args| {
+                    var res = @call(.{}, fun, args);
+                    if (comptime trait.is(.ErrorUnion)(@TypeOf(res))) return if (res) |r| js.write(r) catch |e| js.throw(e) else |e| js.throw(e);
+                    return js.write(res) catch |e| js.throw(e);
+                } else |e| js.throw(e);
+            }
+        }).call;
+
         var res: napi.napi_value = undefined;
-        const ptr = @intToPtr(*anyopaque, @ptrToInt(fun));
-
-        if (refs.get(ptr)) |ref| {
-            try check(napi.napi_get_reference_value(self.env, ref, &res));
-        } else {
-            var ref: napi.napi_ref = undefined;
-            try check(napi.napi_create_function(self.env, null, napi.NAPI_AUTO_LENGTH, self.trampoline(std.meta.Child(@TypeOf(fun))), ptr, &res));
-            try check(napi.napi_add_finalizer(self.env, res, null, &deleteRef, ptr, &ref));
-            try refs.put(ptr, ref);
-        }
-
+        try check(napi.napi_create_function(self.env, "", napi.NAPI_AUTO_LENGTH, cb, null, &res));
         return res;
     }
 
-    fn trampoline(self: *Self, comptime F: type) napi.napi_callback {
-        _ = self;
+    fn readArgs(self: *Self, comptime Args: type, cb_info: napi.napi_callback_info) Error!Args {
+        var args: Args = undefined;
+        var argc: usize = args.len;
+        var argv: [args.len]napi.napi_value = undefined;
+        try check(napi.napi_get_cb_info(self.env, cb_info, &argc, &argv, null, null));
 
-        return &(struct {
-            fn call(env: napi.napi_env, cb_info: napi.napi_callback_info) callconv(.C) napi.napi_value {
-                var js = JsContext{ .env = env };
+        inline for (std.meta.fields(Args)) |f, i| {
+            @field(args, f.name) = try self.read(f.field_type, argv[i]);
+        }
 
-                var args: std.meta.ArgsTuple(F) = undefined;
-                var argc: usize = args.len;
-                var argv: [args.len]napi.napi_value = undefined;
-                var fun: *const F = undefined;
-                check(napi.napi_get_cb_info(env, cb_info, &argc, &argv, null, @ptrCast(
-                    [*c]?*anyopaque,
-                    &fun,
-                ))) catch |e| return js.throw(e);
+        if (argc != args.len) {
+            // TODO: throw
+            std.debug.panic("Expected {d} args", .{argv.len});
+        }
 
-                if (argc != args.len) {
-                    // TODO: throw
-                    std.debug.panic("Expected {d} args", .{argv.len});
-                }
+        return args;
+    }
 
-                // TODO: compiler crashes on this (check again)
-                // inline for (std.meta.fields(@TypeOf(args))) |f, i| {
-                //     const v = js.read(f.field_type, argv[i]) catch |e| return js.throw(e);
-                //     @field(args, f.name) = v;
-                // }
-                inline for (comptime std.meta.fieldNames(@TypeOf(args))) |f, i| {
-                    const v = js.read(@TypeOf(@field(args, f)), argv[i]) catch |e| return js.throw(e);
-                    @field(args, f) = v;
-                }
-
-                var res = @call(.{}, fun, args);
-
-                if (comptime std.meta.trait.is(.ErrorUnion)(@TypeOf(res))) {
-                    if (res) |r| {
-                        return js.write(r) catch |e| return js.throw(e);
-                    } else |e| {
-                        return js.throw(e);
-                    }
-                } else {
-                    return js.write(res) catch |e| return js.throw(e);
-                }
-            }
-        }).call;
+    fn writeArgs(self: *Self, args: anytype) Error![std.meta.fields(@TypeOf(args)).len]napi.napi_value {
+        const Args = @TypeOf(args);
+        var res: [std.meta.fields(Args).len]napi.napi_value = undefined;
+        inline for (std.meta.fields(Args)) |f, i| {
+            res[i] = try self.write(@field(args, f.name));
+        }
+        return res;
     }
 
     pub fn typeOf(self: *Self, val: napi.napi_value) Error!napi.napi_typeof {
@@ -336,17 +337,21 @@ pub const JsContext = struct {
         return res;
     }
 
-    pub fn call(self: *Self, fun: napi.napi_value, args: anytype) Error!napi.napi_value {
-        const Args = @TypeOf(args);
-        const fields = std.meta.fields(Args);
+    pub fn setNamedProperty(self: *Self, object: napi.napi_value, name: [*:0]const u8, value: napi.napi_value) Error!void {
+        try check(napi.napi_set_named_property(self.env, object, name, value));
+    }
 
-        var argv: [fields.len]napi.napi_value = undefined;
-        inline for (fields) |f, i| {
-            argv[i] = try self.write(@field(args, f.name));
-        }
-
+    pub fn callFunction(self: *Self, recv: napi.napi_value, fun: napi.napi_value, args: anytype) Error!napi.napi_value {
+        const argv = try self.writeArgs(args);
         var res: napi.napi_value = undefined;
-        try check(napi.napi_call_function(self.env, try self.write(void{}), fun, fields.len, &argv, &res));
+        try check(napi.napi_call_function(self.env, recv, fun, argv.len, &argv, &res));
+        return res;
+    }
+
+    pub fn newInstance(self: *Self, cons: napi.napi_value, args: anytype) Error!napi.napi_value {
+        const argv = try self.writeArgs(args);
+        var res: napi.napi_value = undefined;
+        try check(napi.napi_new_instance(self.env, cons, argv.len, &argv, &res));
         return res;
     }
 
