@@ -26,29 +26,57 @@ In both cases, you always get a copy, no changes are reflected to the other side
 ## Struct pointers (*T)
 On the other hand, if you return a pointer, you will only get an empty object with that pointer
 being wrapped inside. Then, if you pass this JS object to a function which accepts a pointer,
-it will be unwrapped back. It's a bit like if pointers were some kind of opaque object by default.
+it will be unwrapped back. It's a bit like if pointers were some kind of opaque objects in JS.
 
-You will get the same JS object for the same pointer, unless it has been already collected so whatever
-you store in it, will stay there and you can access it later.
+You will get the same JS object for the same pointer, unless it has been already collected.
+This is useful if you need to attach some state to the JS counterpart and then access that data
+later. Conceptually, it's like if you could attach JS data to a native object.
 
-
-Pointers are, of course, totally unsafe and you should be careful.
+Changes to JS objects are not reflected into the native part but you can provide
+getters/setters in JS and call some native functions yourself.
 
 ## Functions
 You can create JS function with `ctx.createFunction(&zig_fn)` and then you can export them
-just like any other value.
-
+just like any other value. Only comptime-known fns are supported.
 If you return an error from a function call, an exception will be thrown in JS.
+
+```zig
+fn add(a: i32, b: i32) i32 {
+    return a + b;
+}
+
+// somewhere where the JsContext is available
+const js_fun: napigen.napi_value = try js.createFunction(&add);
+
+// and then you probably want to make it acessible to JS somehow
+try js.setNamedProperty("add", js_fun);
+```
+
+## defineModule(&init), exports
+N-API modules need to export a function which will also init & return the `exports` object.
+You could export `napi_register_module_v1` and call `JsContext.init()` yourself but there's
+also a shorthand using `comptime` block which will allow you to use `try` anywhere inside:
+
+```zig
+comptime { napigen.defineModule(&initModule) }
+
+fn initModule(js: *napigen.JsContext, exports: napigen.napi_value) !napigen.napi_value {
+    try js.setNamedProperty(exports, ...);
+    ...
+
+    return exports;
+}
+```
 
 ---
 
-## Example usage
+## Complete example
 
 First, you need to create a new library:
 
 ```bash
-mkdir hello-napi
-cd hello-napi
+mkdir example
+cd example
 zig init-lib
 ```
 
@@ -56,7 +84,9 @@ Then change your `build.zig` to something like this:
 
 ```zig
 ...
-const lib = b.addSharedLibrary("hello-napi", "src/main.zig", .unversioned);
+
+const lib = b.addSharedLibrary("example", "src/main.zig", .unversioned);
+lib.setBuildMode(mode);
 
 // weak-linkage
 lib.linker_allow_shlib_undefined = true;
@@ -64,11 +94,12 @@ lib.linker_allow_shlib_undefined = true;
 // add correct path to this lib
 lib.addPackagePath("napigen", "libs/napigen/napigen.zig");
 
-// copy to a *.node file so we can require() it
-b.installLibFile(b.pathJoin(&.{ "zig-out/lib", lib.out_lib_filename }), "hello-napi.node");
-
-lib.setBuildMode(mode);
+// build the lib
 lib.install();
+
+// copy the result to a *.node file so we can require() it
+b.installLibFile(b.pathJoin(&.{ "zig-out/lib", lib.out_lib_filename }), "example.node");
+
 ...
 ```
 
@@ -76,52 +107,37 @@ Then we can define some functions and the napi module itself in `src/main.zig`
 
 ```zig
 const std = @import("std");
-const napigen = @import("napigen.zig");
+const napigen = @import("napigen");
 
-fn hello(name: []const u8) void {
-    std.debug.print("Hello {s}\n", .{name});
-}
-
-fn add(a: i32, b: i32) i32 {
+export fn add(a: i32, b: i32) i32 {
     return a + b;
 }
 
-export fn napi_register_module_v1(env: napigen.napi_env, _: napigen.napi_value) napigen.napi_value {
-    var cx = napigen.Context{ .env = env };
+comptime {
+    napigen.defineModule(&initModule);
+}
 
-    const exports = .{
-        // export any value
-        .it_works = true,
+fn initModule(js: *napigen.JsContext, exports: napigen.napi_value) !napigen.napi_value {
+    try js.setNamedProperty(exports, "add", try js.createFunction(&add));
 
-        // or fn ptr(s)
-        .hello = &hello,
-        .add = &add,
-    };
-
-    // recursively map value(s) and return the resulting napi_value which will be then used for module.exports
-    return napigen.write(exports) catch |e| return cx.throw(e);
+    return exports;
 }
 ```
 
-In your `hello.js`, you can use it as expected:
+And then you can use it from JS as expected:
 
 ```javascript
-const lib = require('./zig-out/lib/hello-napi.node')
+import { createRequire } from 'node:module'
+const require = createRequire(import.meta.url)
+const native = require('./zig-out/lib/example.node')
 
-// prints true
-console.log(lib.it_works)
-
-// prints "Hello world" fom zig
-lib.hello("world")
-
-// prints 3
-console.log(lib.add(1, 2))
+console.log('1 + 2 =', native.add(1, 2));
 ```
 
 To build the lib and run the script:
-```bash
-zig build
-node hello.js
+```
+> zig build && node example.js
+1 + 2 = 3
 ```
 
 ## License

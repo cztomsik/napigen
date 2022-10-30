@@ -20,16 +20,21 @@ pub fn check(status: napi.napi_status) Error!void {
 
 pub const allocator = std.heap.c_allocator;
 
+pub fn defineModule(comptime init_fn: *const fn (*JsContext, napi.napi_value) Error!napi.napi_value) void {
+    const register = (struct {
+        fn register(env: napi.napi_env, exports: napi.napi_value) callconv(.C) napi.napi_value {
+            var cx = JsContext.init(env) catch @panic("could not init JS context");
+            return init_fn(cx, exports) catch |e| cx.throw(e);
+        }
+    }).register;
+
+    @export(register, .{ .name = "napi_register_module_v1", .linkage = .Strong });
+}
+
 // TODO: strings are only valid during the function call
 // threadlocal var arena: ?std.heap.ArenaAllocator = null;
 var TEMP_GPA = std.heap.GeneralPurposeAllocator(.{}){};
 pub const TEMP = TEMP_GPA.allocator();
-
-fn deleteRef(_: napi.napi_env, _: ?*anyopaque, ptr: ?*anyopaque) callconv(.C) void {
-    _ = ptr;
-    @panic("TODO");
-    //_ = refs.remove(ptr.?);
-}
 
 pub const JsContext = struct {
     env: napi.napi_env,
@@ -202,8 +207,7 @@ pub const JsContext = struct {
     pub fn readStruct(self: *Self, comptime T: type, val: napi.napi_value) Error!T {
         var res: T = undefined;
         inline for (std.meta.fields(T)) |f| {
-            var v: napi.napi_value = undefined;
-            try check(napi.napi_get_named_property(self.env, val, f.name ++ "", &v));
+            var v = try self.getNamedProperty(val, f.name ++ "");
             @field(res, f.name) = try self.read(f.field_type, v);
         }
         return res;
@@ -214,7 +218,7 @@ pub const JsContext = struct {
         try check(napi.napi_create_object(self.env, &res));
         inline for (std.meta.fields(@TypeOf(val))) |f| {
             var v = try self.write(@field(val, f.name));
-            try check(napi.napi_set_named_property(self.env, res, f.name ++ "", v));
+            try self.setNamedProperty(res, f.name ++ "", v);
         }
         return res;
     }
@@ -254,15 +258,30 @@ pub const JsContext = struct {
         var res: napi.napi_value = undefined;
 
         if (self.refs.get(val)) |ref| {
-            try check(napi.napi_get_reference_value(self.env, ref, &res));
-        } else {
-            var ref: napi.napi_ref = undefined;
-            try check(napi.napi_create_object(self.env, &res));
-            try check(napi.napi_wrap(self.env, res, val, &deleteRef, val, &ref));
-            try self.refs.put(allocator, val, ref);
+            if (napi.napi_get_reference_value(self.env, ref, &res) == napi.napi_ok) {
+                return res;
+            } else _ = napi.napi_delete_reference(self.env, ref);
         }
 
+        var ref: napi.napi_ref = undefined;
+        try check(napi.napi_create_object(self.env, &res));
+        try check(napi.napi_wrap(self.env, res, val, &deleteRef, val, &ref));
+        try self.refs.put(allocator, val, ref);
+
         return res;
+    }
+
+    fn deleteRef(env: napi.napi_env, _: ?*anyopaque, ptr: ?*anyopaque) callconv(.C) void {
+        var self = getInstance(env);
+
+        if (self.refs.get(ptr.?)) |ref| {
+            // not sure if this is really needed but if we have a new ref and it's valid, we want to skip this
+            var val: napi.napi_value = undefined;
+            if (napi.napi_get_reference_value(env, ref, &val) == napi.napi_ok) return;
+
+            _ = napi.napi_delete_reference(env, ref);
+            _ = self.refs.remove(ptr.?);
+        }
     }
 
     pub fn readString(self: *Self, val: napi.napi_value) Error![]const u8 {
@@ -337,8 +356,14 @@ pub const JsContext = struct {
         return res;
     }
 
-    pub fn setNamedProperty(self: *Self, object: napi.napi_value, name: [*:0]const u8, value: napi.napi_value) Error!void {
-        try check(napi.napi_set_named_property(self.env, object, name, value));
+    pub fn getNamedProperty(self: *Self, object: napi.napi_value, prop_name: [*:0]const u8) Error!napi.napi_value {
+        var res: napi.napi_value = undefined;
+        try check(napi.napi_get_named_property(self.env, object, prop_name, &res));
+        return res;
+    }
+
+    pub fn setNamedProperty(self: *Self, object: napi.napi_value, prop_name: [*:0]const u8, value: napi.napi_value) Error!void {
+        try check(napi.napi_set_named_property(self.env, object, prop_name, value));
     }
 
     pub fn callFunction(self: *Self, recv: napi.napi_value, fun: napi.napi_value, args: anytype) Error!napi.napi_value {
