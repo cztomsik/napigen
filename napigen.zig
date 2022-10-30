@@ -39,7 +39,6 @@ pub const TEMP = TEMP_GPA.allocator();
 pub const JsContext = struct {
     env: napi.napi_env,
     refs: std.AutoHashMapUnmanaged(*anyopaque, napi.napi_ref) = .{},
-    constructors: std.StringHashMapUnmanaged(napi.napi_ref) = .{},
 
     const Self = @This();
 
@@ -295,12 +294,6 @@ pub const JsContext = struct {
         var res: napi.napi_value = undefined;
         try check(napi.napi_create_string_utf8(self.env, @ptrCast([*c]const u8, val), val.len, &res));
         return res;
-    }
-
-    pub fn useConstructor(self: *Self, comptime T: type, cons: napi.napi_value) Error!void {
-        var ref: napi.napi_ref = undefined;
-        try check(napi.napi_create_reference(self.env, cons, 1, &ref));
-        self.constructors.put(allocator, @typeName(T), ref);
     }
 
     pub fn createFunction(self: *Self, comptime fun: anytype) Error!napi.napi_value {

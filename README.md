@@ -13,8 +13,7 @@ The API is intentionally simple/thin and only basic types are supported. The rea
 that it's often hard to guess how a certain thing should be mapped and it's much better if
 there's an easy way to hook into the mapping process and/or use the N-API directly.
 
-Specifically, there is no support for classes but it's possible to provide a JS constructor
-which will be called when a struct pointer is to be returned (see below).
+Specifically, there is no support for classes.
 
 ## Structs/tuples (value types)
 If you return a struct by value, it will be mapped to an anonymous object/array
