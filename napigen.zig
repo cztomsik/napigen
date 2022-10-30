@@ -67,7 +67,6 @@ pub const JsContext = struct {
     pub fn read(self: *Self, comptime T: type, val: napi.napi_value) Error!T {
         // TODO: custom mappings
 
-        if (T == *Self) return self;
         if (T == napi.napi_value) return val;
         if (comptime trait.isZigString(T)) return self.readString(val);
 
@@ -329,11 +328,18 @@ pub const JsContext = struct {
         var argv: [args.len]napi.napi_value = undefined;
         try check(napi.napi_get_cb_info(self.env, cb_info, &argc, &argv, null, null));
 
-        inline for (std.meta.fields(Args)) |f, i| {
+        var i: usize = 0;
+        inline for (std.meta.fields(Args)) |f| {
+            if (comptime f.field_type == *Self) {
+                @field(args, f.name) = self;
+                continue;
+            }
+
             @field(args, f.name) = try self.read(f.field_type, argv[i]);
+            i += 1;
         }
 
-        if (argc != args.len) {
+        if (i != argc) {
             // TODO: throw
             std.debug.panic("Expected {d} args", .{argv.len});
         }

@@ -52,6 +52,25 @@ const js_fun: napigen.napi_value = try js.createFunction(&add);
 try js.setNamedProperty("add", js_fun);
 ```
 
+## Callbacks, *JsContext, napi_value
+Functions can also accept current *JsContext which is useful for calling N-API directly,
+or to perform callbacks, for example. To get a raw JS value, just use `napi_value` as an arg type.
+
+```zig
+fn callMeBack(js: *napigen.JsContext, recv: napi.napi_value, fun: napi.napi_value) !void {
+    try js.callFunction(recv, fun, .{ "Hello from Zig" });
+}
+```
+
+And then
+
+```javascript
+native.callMeBack(console, console.log)
+```
+
+If you need to store the callback for a longer period of time, you should create a ref - for now,
+you have to do that directly, using `napi_create_reference()`
+
 ## defineModule(&init), exports
 N-API modules need to export a function which will also init & return the `exports` object.
 You could export `napi_register_module_v1` and call `JsContext.init()` yourself but there's
