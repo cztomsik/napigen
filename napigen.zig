@@ -206,7 +206,7 @@ pub const JsContext = struct {
         var res: T = undefined;
         inline for (std.meta.fields(T)) |f| {
             var v = try self.getNamedProperty(val, f.name ++ "");
-            @field(res, f.name) = try self.read(f.field_type, v);
+            @field(res, f.name) = try self.read(f.type, v);
         }
         return res;
     }
@@ -229,7 +229,7 @@ pub const JsContext = struct {
         var res: napi.napi_value = undefined;
         const fields = std.meta.fields(@TypeOf(val));
         try check(napi.napi_create_array_with_length(self.env, fields.len, &res));
-        inline for (fields) |f, i| {
+        inline for (fields, 0..) |f, i| {
             const v = try self.write(@field(val, f.name));
             try check(napi.napi_set_element(self.env, res, @truncate(u32, i), v));
         }
@@ -303,7 +303,7 @@ pub const JsContext = struct {
                 var js = getInstance(env);
 
                 return if (js.readArgs(std.meta.ArgsTuple(F), cb_info)) |args| {
-                    var res = @call(.{}, fun, args);
+                    var res = @call(.auto, fun, args);
                     if (comptime trait.is(.ErrorUnion)(@TypeOf(res))) return if (res) |r| js.write(r) catch |e| js.throw(e) else |e| js.throw(e);
                     return js.write(res) catch |e| js.throw(e);
                 } else |e| js.throw(e);
@@ -323,12 +323,12 @@ pub const JsContext = struct {
 
         var i: usize = 0;
         inline for (std.meta.fields(Args)) |f| {
-            if (comptime f.field_type == *Self) {
+            if (comptime f.type == *Self) {
                 @field(args, f.name) = self;
                 continue;
             }
 
-            @field(args, f.name) = try self.read(f.field_type, argv[i]);
+            @field(args, f.name) = try self.read(f.type, argv[i]);
             i += 1;
         }
 
@@ -343,7 +343,7 @@ pub const JsContext = struct {
     fn writeArgs(self: *Self, args: anytype) Error![std.meta.fields(@TypeOf(args)).len]napi.napi_value {
         const Args = @TypeOf(args);
         var res: [std.meta.fields(Args).len]napi.napi_value = undefined;
-        inline for (std.meta.fields(Args)) |f, i| {
+        inline for (std.meta.fields(Args), 0..) |f, i| {
             res[i] = try self.write(@field(args, f.name));
         }
         return res;
