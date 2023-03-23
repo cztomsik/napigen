@@ -48,7 +48,7 @@ fn add(a: i32, b: i32) i32 {
 const js_fun: napigen.napi_value = try js.createFunction(&add);
 
 // and then you probably want to make it acessible to JS somehow
-try js.setNamedProperty("add", js_fun);
+try js.setNamedProperty(exports, "add", js_fun);
 ```
 
 ## Callbacks, *JsContext, napi_value
