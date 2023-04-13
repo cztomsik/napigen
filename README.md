@@ -2,61 +2,71 @@
 Comptime N-API bindings for Zig.
 
 ## Features
-- primitives, tuples, structs (value types), optionals
-- strings (valid for the function scope)
-- struct ptrs (see below)
-- functions (no classes, see below)
-- \+ whole N-API, so you can do pretty much anything
+- Primitives, tuples, structs (value types), optionals
+- Strings (valid for the function scope)
+- Struct pointers (see below)
+- Functions (no classes, see below)
+- all the `napi_xxx` functions and types are re-exported as `napigen.napi_xxx`,\
+  so you can do pretty much anything if you don't mind going lower-level.
 
 ## Limited scope
-The API is intentionally simple/thin and only basic types are supported. The reason is
-that it's often hard to guess how a certain thing should be mapped and it's much better if
-there's an easy way to hook into the mapping process and/or use the N-API directly.
+The library provides a simple and thin API, supporting only basic types. This
+design choice is intentional, as it is often difficult to determine the ideal
+mapping for more complex types. The library allows users to hook into the
+mapping process or use the N-API directly for finer control.
 
 Specifically, there is no support for classes.
 
 ## Structs/tuples (value types)
-If you return a struct by value, it will be mapped to an anonymous object/array
-with all of the properties/elements mapped recursively. Similarly, if you accept a struct/tuple
-by value, it will be mapped back from JS to a respective native type.
+When returning a struct/tuple by value, it is mapped to an anonymous JavaScript
+object/array with all properties/elements mapped recursively. Similarly, when
+accepting a struct/tuple by value, it is mapped back from JavaScript to the
+respective native type.
 
-In both cases, you always get a copy, no changes are reflected to the other side.
+In both cases, a copy is created, so changes to the JS object are not reflected
+in the native part and vice versa.
 
 ## Struct pointers (*T)
-On the other hand, if you return a pointer, you will only get an empty object with that pointer
-being wrapped inside. Then, if you pass this JS object to a function which accepts a pointer,
-it will be unwrapped back. It's a bit like if pointers were some kind of opaque objects in JS.
+When returning a pointer to a struct, an empty JavaScript object will be created
+with the pointer wrapped inside. If this JavaScript object is passed to a
+function that accepts a pointer, the pointer is unwrapped back.
 
-You will get the same JS object for the same pointer, unless it has been already collected.
-This is useful if you need to attach some state to the JS counterpart and then access that data
-later. Conceptually, it's like if you could attach JS data to a native object.
+The same JavaScript object is obtained for the same pointer, unless it has
+already been collected. This is useful for attaching state to the JavaScript
+counterpart and accessing that data later.
 
-Changes to JS objects are not reflected into the native part but you can provide
-getters/setters in JS and call some native functions yourself.
+Changes to JavaScript objects are not reflected in the native part, but
+getters/setters can be provided in JavaScript and native functions can be called
+as necessary.
 
 ## Functions
-You can create JS function with `ctx.createFunction(&zig_fn)` and then you can export them
-just like any other value. Only comptime-known fns are supported.
-If you return an error from a function call, an exception will be thrown in JS.
+JavaScript functions can be created with ctx.createFunction(zig_fn) and then
+exported like any other value. Only comptime-known functions are supported. If
+an error is returned from a function call, an exception is thrown in JavaScript.
 
 ```zig
 fn add(a: i32, b: i32) i32 {
     return a + b;
 }
 
-// somewhere where the JsContext is available
-const js_fun: napigen.napi_value = try js.createFunction(&add);
+// Somewhere where the JsContext is available
+const js_fun: napigen.napi_value = try js.createFunction(add);
 
-// and then you probably want to make it acessible to JS somehow
+// Make the function accessible to JavaScript
 try js.setNamedProperty(exports, "add", js_fun);
 ```
 
+Note that **the number of arguments must match exactly**. So if you need to
+support optional arguments, you will have to provide a wrapper function in JS,
+which calls the native function with the correct arguments.
+
 ## Callbacks, *JsContext, napi_value
-Functions can also accept current *JsContext which is useful for calling N-API directly,
-or to perform callbacks, for example. To get a raw JS value, just use `napi_value` as an arg type.
+Functions can also accept the current `*JsContext`, which is useful for calling
+the N-API directly or performing callbacks. To get a raw JavaScript value,
+simply use `napi_value` as an argument type.
 
 ```zig
-fn callMeBack(js: *napigen.JsContext, recv: napi.napi_value, fun: napi.napi_value) !void {
+fn callMeBack(js: *napigen.JsContext, recv: napigen.napi_value, fun: napigen.napi_value) !void {
     try js.callFunction(recv, fun, .{ "Hello from Zig" });
 }
 ```
@@ -67,16 +77,17 @@ And then
 native.callMeBack(console, console.log)
 ```
 
-If you need to store the callback for a longer period of time, you should create a ref - for now,
-you have to do that directly, using `napi_create_reference()`
+If you need to store the callback for a longer period of time, you should create
+a ref. For now, you have to do that directly, using `napi_create_reference()`.
 
-## defineModule(&init), exports
-N-API modules need to export a function which will also init & return the `exports` object.
-You could export `napi_register_module_v1` and call `JsContext.init()` yourself but there's
-also a shorthand using `comptime` block which will allow you to use `try` anywhere inside:
+## defineModule(init_fn), exports
+N-API modules need to export a function which will also init & return the
+`exports` object. You could export `napi_register_module_v1` and call
+`JsContext.init()` yourself but there's also a shorthand using `comptime` block
+which will allow you to use `try` anywhere inside:
 
 ```zig
-comptime { napigen.defineModule(&initModule) }
+comptime { napigen.defineModule(initModule) }
 
 fn initModule(js: *napigen.JsContext, exports: napigen.napi_value) !napigen.napi_value {
     try js.setNamedProperty(exports, ...);
@@ -90,7 +101,7 @@ fn initModule(js: *napigen.JsContext, exports: napigen.napi_value) !napigen.napi
 
 ## Complete example
 
-First, you need to create a new library:
+First, create a new library:
 
 ```bash
 mkdir example
@@ -98,7 +109,7 @@ cd example
 zig init-lib
 ```
 
-Then change your `build.zig` to something like this:
+Then, change your `build.zig` to something like this:
 
 ```zig
 ...
@@ -121,7 +132,7 @@ b.installLibFile(b.pathJoin(&.{ "zig-out/lib", lib.out_lib_filename }), "example
 ...
 ```
 
-Then we can define some functions and the napi module itself in `src/main.zig`
+Next, define some functions and the N-API module itself in `src/main.zig`
 
 ```zig
 const std = @import("std");
@@ -132,17 +143,17 @@ export fn add(a: i32, b: i32) i32 {
 }
 
 comptime {
-    napigen.defineModule(&initModule);
+    napigen.defineModule(initModule);
 }
 
 fn initModule(js: *napigen.JsContext, exports: napigen.napi_value) !napigen.napi_value {
-    try js.setNamedProperty(exports, "add", try js.createFunction(&add));
+    try js.setNamedProperty(exports, "add", try js.createFunction(add));
 
     return exports;
 }
 ```
 
-And then you can use it from JS as expected:
+Finally, use it from JavaScript as expected:
 
 ```javascript
 import { createRequire } from 'node:module'
@@ -152,7 +163,7 @@ const native = require('./zig-out/lib/example.node')
 console.log('1 + 2 =', native.add(1, 2));
 ```
 
-To build the lib and run the script:
+To build the library and run the script:
 ```
 > zig build && node example.js
 1 + 2 = 3

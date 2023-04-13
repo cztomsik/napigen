@@ -6,11 +6,11 @@ export fn add(a: i32, b: i32) i32 {
 }
 
 comptime {
-    napigen.defineModule(&initModule);
+    napigen.defineModule(initModule);
 }
 
 fn initModule(js: *napigen.JsContext, exports: napigen.napi_value) !napigen.napi_value {
-    try js.setNamedProperty(exports, "add", try js.createFunction(&add));
+    try js.setNamedProperty(exports, "add", try js.createFunction(add));
 
     return exports;
 }
