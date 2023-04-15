@@ -107,7 +107,7 @@ pub const JsContext = struct {
             i8, i16, i32 => try check(napi.napi_create_int32(self.env, val, &res)),
             @TypeOf(0), i64 => try check(napi.napi_create_int64(self.env, val, &res)),
             @TypeOf(0.0), f16, f32, f64 => try check(napi.napi_create_double(self.env, val, &res)),
-            else => @compileError("not supported"),
+            else => |T| @compileError(@typeName(T) ++ " is not supported number"),
         }
 
         return res;
@@ -124,7 +124,7 @@ pub const JsContext = struct {
             i64 => try check(napi.napi_get_value_int64(self.env, val, &res)),
             f16, f32 => res = @floatCast(T, try self.readNumber(f64, val)),
             f64 => try check(napi.napi_get_value_double(self.env, val, &res)),
-            else => @compileError("not supported"),
+            else => @compileError(@typeName(T) ++ " is not supported number"),
         }
 
         return res;
