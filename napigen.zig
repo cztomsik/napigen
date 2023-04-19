@@ -38,7 +38,7 @@ pub const TEMP = TEMP_GPA.allocator();
 
 pub const JsContext = struct {
     env: napi.napi_env,
-    refs: std.AutoHashMapUnmanaged(*anyopaque, napi.napi_ref) = .{},
+    refs: std.AutoHashMapUnmanaged(usize, napi.napi_ref) = .{},
 
     pub fn init(env: napi.napi_env) Error!*JsContext {
         var self = try allocator.create(JsContext);
@@ -103,10 +103,11 @@ pub const JsContext = struct {
         var res: napi.napi_value = undefined;
 
         switch (@TypeOf(val)) {
-            u8, u16, u32 => try check(napi.napi_create_uint32(self.env, val, &res)),
-            i8, i16, i32 => try check(napi.napi_create_int32(self.env, val, &res)),
-            @TypeOf(0), i64 => try check(napi.napi_create_int64(self.env, val, &res)),
-            @TypeOf(0.0), f16, f32, f64 => try check(napi.napi_create_double(self.env, val, &res)),
+            u8, u16, u32, c_uint => try check(napi.napi_create_uint32(self.env, val, &res)),
+            u64, usize => try check(napi.napi_create_bigint_uint64(self.env, val, &res)),
+            i8, i16, i32, c_int => try check(napi.napi_create_int32(self.env, val, &res)),
+            i64, isize, @TypeOf(0) => try check(napi.napi_create_bigint_int64(self.env, val, &res)),
+            f16, f32, f64, @TypeOf(0.0) => try check(napi.napi_create_double(self.env, val, &res)),
             else => |T| @compileError(@typeName(T) ++ " is not supported number"),
         }
 
@@ -115,13 +116,15 @@ pub const JsContext = struct {
 
     pub fn readNumber(self: *JsContext, comptime T: type, val: napi.napi_value) Error!T {
         var res: T = undefined;
+        var lossless: bool = undefined; // TODO: check overflow?
 
         switch (T) {
-            u8, u16 => res = @truncate(T, self.read(u32, val)),
-            u32 => try check(napi.napi_get_value_uint32(self.env, val, &res)),
+            u8, u16 => res = @truncate(T, try self.read(u32, val)),
+            u32, c_uint => try check(napi.napi_get_value_uint32(self.env, val, &res)),
+            u64, usize => try check(napi.napi_get_value_bigint_uint64(self.env, val, &res, &lossless)),
             i8, i16 => res = @truncate(T, self.read(i32, val)),
-            i32 => try check(napi.napi_get_value_int32(self.env, val, &res)),
-            i64 => try check(napi.napi_get_value_int64(self.env, val, &res)),
+            i32, c_int => try check(napi.napi_get_value_int32(self.env, val, &res)),
+            i64, isize => try check(napi.napi_get_value_bigint_int64(self.env, val, &res, &lossless)),
             f16, f32 => res = @floatCast(T, try self.readNumber(f64, val)),
             f64 => try check(napi.napi_get_value_double(self.env, val, &res)),
             else => @compileError(@typeName(T) ++ " is not supported number"),
@@ -239,7 +242,7 @@ pub const JsContext = struct {
 
         var res: napi.napi_value = undefined;
 
-        if (self.refs.get(val)) |ref| {
+        if (self.refs.get(@ptrToInt(val))) |ref| {
             if (napi.napi_get_reference_value(self.env, ref, &res) == napi.napi_ok) {
                 return res;
             } else {
@@ -249,8 +252,8 @@ pub const JsContext = struct {
 
         var ref: napi.napi_ref = undefined;
         res = try self.createEmptyObject();
-        try check(napi.napi_wrap(self.env, res, val, &deleteRef, val, &ref));
-        try self.refs.put(allocator, val, ref);
+        try check(napi.napi_wrap(self.env, res, @constCast(val), &deleteRef, @ptrCast(*anyopaque, @constCast(val)), &ref));
+        try self.refs.put(allocator, @ptrToInt(val), ref);
 
         return res;
     }
@@ -258,13 +261,13 @@ pub const JsContext = struct {
     fn deleteRef(env: napi.napi_env, _: ?*anyopaque, ptr: ?*anyopaque) callconv(.C) void {
         var js = JsContext.getInstance(env);
 
-        if (js.refs.get(ptr.?)) |ref| {
+        if (js.refs.get(@ptrToInt(ptr.?))) |ref| {
             // not sure if this is really needed but if we have a new ref and it's valid, we want to skip this
             var val: napi.napi_value = undefined;
             if (napi.napi_get_reference_value(env, ref, &val) == napi.napi_ok) return;
 
             _ = napi.napi_delete_reference(env, ref);
-            _ = js.refs.remove(ptr.?);
+            _ = js.refs.remove(@ptrToInt(ptr.?));
         }
     }
 
@@ -283,13 +286,13 @@ pub const JsContext = struct {
         return switch (@typeInfo(T)) {
             .Void => void{},
             .Null => null,
-            .Bool => self.readBool(val),
+            .Bool => self.readBoolean(val),
             .Int, .ComptimeInt, .Float, .ComptimeFloat => self.readNumber(T, val),
             .Enum => std.meta.intToEnum(T, self.read(u32, val)),
             .Struct => if (std.meta.trait.isTuple(T)) self.readTuple(T, val) else self.readObject(T, val),
             .Optional => |info| self.readOptional(info.child, val),
             .Pointer => |info| self.readPtr(info.child, val),
-            else => @compileError("reading " ++ @tagName(@typeInfo(T)) ++ " is not supported"),
+            else => @compileError("reading " ++ @tagName(@typeInfo(T)) ++ " " ++ @typeName(T) ++ " is not supported"),
         };
     }
 
@@ -304,13 +307,13 @@ pub const JsContext = struct {
         return switch (@typeInfo(T)) {
             .Void => self.undefined(),
             .Null => self.null(),
-            .Bool => self.createBool(val),
+            .Bool => self.createBoolean(val),
             .Int, .ComptimeInt, .Float, .ComptimeFloat => self.createNumber(val),
             .Enum => self.createNumber(@as(u32, @enumToInt(val))),
             .Struct => if (std.meta.trait.isTuple(T)) self.createTuple(val) else self.createObject(val),
             .Optional => self.createOptional(val),
             .Pointer => self.wrapPtr(val),
-            else => @compileError("writing " ++ @tagName(@typeInfo(T)) ++ " is not supported"),
+            else => @compileError("writing " ++ @tagName(@typeInfo(T)) ++ " " ++ @typeName(T) ++ " is not supported"),
         };
     }
 
