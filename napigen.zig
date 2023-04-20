@@ -1,3 +1,4 @@
+const root = @import("root");
 const std = @import("std");
 const trait = std.meta.trait;
 const napi = @import("napi.zig");
@@ -277,9 +278,9 @@ pub const JsContext = struct {
         return res;
     }
 
-    pub fn read(self: *JsContext, comptime T: type, val: napi.napi_value) Error!T {
-        // TODO: custom mappings
+    pub const read = if (@hasDecl(root, "napigenRead")) root.napigenRead else defaultRead;
 
+    pub fn defaultRead(self: *JsContext, comptime T: type, val: napi.napi_value) Error!T {
         if (T == napi.napi_value) return val;
         if (comptime trait.isZigString(T)) return self.readString(val);
 
@@ -296,10 +297,10 @@ pub const JsContext = struct {
         };
     }
 
-    pub fn write(self: *JsContext, val: anytype) Error!napi.napi_value {
-        const T = @TypeOf(val);
+    pub const write = if (@hasDecl(root, "napigenWrite")) root.napigenWrite else defaultWrite;
 
-        // TODO: custom mappings
+    pub fn defaultWrite(self: *JsContext, val: anytype) Error!napi.napi_value {
+        const T = @TypeOf(val);
 
         if (T == napi.napi_value) return val;
         if (comptime trait.isZigString(T)) return self.createString(val);

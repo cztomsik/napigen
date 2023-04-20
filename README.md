@@ -97,6 +97,39 @@ fn initModule(js: *napigen.JsContext, exports: napigen.napi_value) !napigen.napi
 }
 ```
 
+## Hooks
+Whenever a value is passed from Zig to JS or vice versa, the library will call a
+hook function, if one is defined. This allows you to customize the mapping
+process.
+
+Hooks have to be defined in the root module, and they need to be named
+`napigenRead` and `napigenWrite` respectively. They must have the following
+signature:
+
+```zig
+fn napigenRead(js: *napigen.JsContext, comptime T: type, value: napigen.napi_value) !T {
+    return switch (T) {
+        // we can easily customize the mapping for specific types
+        // for example, we can allow passing regular JS strings anywhere where we expect an InternedString
+        InternedString => InternedString.from(try js.read([]const u8)),
+
+        // otherwise, just use the default mapping, note that this time
+        // we call js.defaultRead() explicitly, to avoid infinite recursion
+        else => js.defaultRead(T, value),
+    }
+}
+
+pub fn napigenWrite(js: *napigen.JsContext, value: anytype) !napigen.napi_value {
+    return switch (@TypeOf(value) {
+        // convert InternedString to back to a JS string (hypothetically)
+        InternedString => try js.write(value.ptr),
+
+        // same thing here
+        else => js.defaultWrite(value),
+    }
+}
+```
+
 ---
 
 ## Complete example
