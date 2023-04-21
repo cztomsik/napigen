@@ -21,15 +21,16 @@ pub fn check(status: napi.napi_status) Error!void {
 
 pub const allocator = std.heap.c_allocator;
 
+/// Convenience helper to define N-API module with a single function
 pub fn defineModule(comptime init_fn: fn (*JsContext, napi.napi_value) Error!napi.napi_value) void {
-    const register = (struct {
+    const NapigenNapiModule = struct {
         fn register(env: napi.napi_env, exports: napi.napi_value) callconv(.C) napi.napi_value {
             var cx = JsContext.init(env) catch @panic("could not init JS context");
             return init_fn(cx, exports) catch |e| cx.throw(e);
         }
-    }).register;
+    };
 
-    @export(register, .{ .name = "napi_register_module_v1", .linkage = .Strong });
+    @export(NapigenNapiModule.register, .{ .name = "napi_register_module_v1", .linkage = .Strong });
 }
 
 // TODO: strings are only valid during the function call
@@ -41,6 +42,7 @@ pub const JsContext = struct {
     env: napi.napi_env,
     refs: std.AutoHashMapUnmanaged(usize, napi.napi_ref) = .{},
 
+    /// Init the JS context.
     pub fn init(env: napi.napi_env) Error!*JsContext {
         var self = try allocator.create(JsContext);
         try check(napi.napi_set_instance_data(env, self, finalize, null));
@@ -48,10 +50,12 @@ pub const JsContext = struct {
         return self;
     }
 
+    /// Deinit the JS context.
     pub fn deinit(self: *JsContext) void {
         allocator.destroy(self);
     }
 
+    /// Retreive the JS context from the N-API environment.
     fn getInstance(env: napi.napi_env) *JsContext {
         var res: *JsContext = undefined;
         check(napi.napi_get_instance_data(env, @ptrCast([*c]?*anyopaque, &res))) catch @panic("could not get JS context");
@@ -62,12 +66,14 @@ pub const JsContext = struct {
         getInstance(env).deinit();
     }
 
+    /// Get the type of a JS value.
     pub fn typeOf(self: *JsContext, val: napi.napi_value) Error!napi.napi_valuetype {
         var res: napi.napi_valuetype = undefined;
         try check(napi.napi_typeof(self.env, val, &res));
         return res;
     }
 
+    /// Throw an error.
     pub fn throw(self: *JsContext, err: anyerror) napi.napi_value {
         const msg = @ptrCast([*c]const u8, @errorName(err));
         check(napi.napi_throw_error(self.env, null, msg)) catch |e| {
@@ -76,30 +82,35 @@ pub const JsContext = struct {
         return self.undefined() catch @panic("throw return undefined");
     }
 
+    /// Get the JS `undefined` value.
     pub fn @"undefined"(self: *JsContext) Error!napi.napi_value {
         var res: napi.napi_value = undefined;
         try check(napi.napi_get_undefined(self.env, &res));
         return res;
     }
 
+    /// Get the JS `null` value.
     pub fn @"null"(self: *JsContext) Error!napi.napi_value {
         var res: napi.napi_value = undefined;
         try check(napi.napi_get_null(self.env, &res));
         return res;
     }
 
+    /// Create a JS boolean value.
     pub fn createBoolean(self: *JsContext, val: bool) Error!napi.napi_value {
         var res: napi.napi_value = undefined;
         try check(napi.napi_get_boolean(self.env, val, &res));
         return res;
     }
 
+    /// Read a native boolean from a JS value.
     pub fn readBoolean(self: *JsContext, val: napi.napi_value) Error!bool {
         var res: bool = undefined;
         try check(napi.napi_get_value_bool(self.env, val, &res));
         return res;
     }
 
+    /// Create a JS number value.
     pub fn createNumber(self: *JsContext, val: anytype) Error!napi.napi_value {
         var res: napi.napi_value = undefined;
 
@@ -115,6 +126,7 @@ pub const JsContext = struct {
         return res;
     }
 
+    /// Read a native number from a JS value.
     pub fn readNumber(self: *JsContext, comptime T: type, val: napi.napi_value) Error!T {
         var res: T = undefined;
         var lossless: bool = undefined; // TODO: check overflow?
@@ -134,9 +146,17 @@ pub const JsContext = struct {
         return res;
     }
 
+    /// Create a JS string value.
     pub fn createString(self: *JsContext, val: []const u8) Error!napi.napi_value {
         var res: napi.napi_value = undefined;
         try check(napi.napi_create_string_utf8(self.env, @ptrCast([*c]const u8, val), val.len, &res));
+        return res;
+    }
+
+    /// Get the length of a JS string value.
+    pub fn getStringLength(self: *JsContext, val: napi.napi_value) Error!usize {
+        var res: usize = undefined;
+        try check(napi.napi_get_value_string_utf8(self.env, val, null, 0, &res));
         return res;
     }
 
@@ -156,30 +176,35 @@ pub const JsContext = struct {
         return if (try self.typeOf(val) == napi.napi_null) null else self.read(T, val);
     }
 
+    /// Create an empty JS array.
     pub fn createArray(self: *JsContext) Error!napi.napi_value {
         var res: napi.napi_value = undefined;
         try check(napi.napi_create_array(self.env, &res));
         return res;
     }
 
+    /// Create a JS array with a given length.
     pub fn createArrayWithLength(self: *JsContext, length: u32) Error!napi.napi_value {
         var res: napi.napi_value = undefined;
         try check(napi.napi_create_array_with_length(self.env, length, &res));
         return res;
     }
 
+    /// Get the length of a JS array.
     pub fn getArrayLength(self: *JsContext, array: napi.napi_value) Error!u32 {
         var res: u32 = undefined;
         try check(napi.napi_get_array_length(self.env, array, &res));
         return res;
     }
 
+    /// Get a JS value from a JS array by index.
     pub fn getElement(self: *JsContext, array: napi.napi_value, index: u32) Error!napi.napi_value {
         var res: napi.napi_value = undefined;
         try check(napi.napi_get_element(self.env, array, index, &res));
         return res;
     }
 
+    /// Set a JS value to a JS array by index.
     pub fn setElement(self: *JsContext, array: napi.napi_value, index: u32, value: napi.napi_value) Error!void {
         try check(napi.napi_set_element(self.env, array, index, value));
     }
@@ -204,14 +229,16 @@ pub const JsContext = struct {
         return res;
     }
 
-    pub fn createEmptyObject(self: *JsContext) Error!napi.napi_value {
+    /// Create an empty JS object.
+    pub fn createObject(self: *JsContext) Error!napi.napi_value {
         var res: napi.napi_value = undefined;
         try check(napi.napi_create_object(self.env, &res));
         return res;
     }
 
-    pub fn createObject(self: *JsContext, val: anytype) Error!napi.napi_value {
-        var res: napi.napi_value = try self.createEmptyObject();
+    /// Create a JS object from a native value.
+    pub fn createObjectFrom(self: *JsContext, val: anytype) Error!napi.napi_value {
+        var res: napi.napi_value = try self.createObject();
         inline for (std.meta.fields(@TypeOf(val))) |f| {
             var v = try self.write(@field(val, f.name));
             try self.setNamedProperty(res, f.name ++ "", v);
@@ -219,6 +246,7 @@ pub const JsContext = struct {
         return res;
     }
 
+    /// Read a struct/tuple from a JS object.
     pub fn readObject(self: *JsContext, comptime T: type, val: napi.napi_value) Error!T {
         var res: T = undefined;
         inline for (std.meta.fields(T)) |f| {
@@ -228,12 +256,14 @@ pub const JsContext = struct {
         return res;
     }
 
+    /// Get the JS value of an object property by name.
     pub fn getNamedProperty(self: *JsContext, object: napi.napi_value, prop_name: [*:0]const u8) Error!napi.napi_value {
         var res: napi.napi_value = undefined;
         try check(napi.napi_get_named_property(self.env, object, prop_name, &res));
         return res;
     }
 
+    /// Set the JS value of an object property by name.
     pub fn setNamedProperty(self: *JsContext, object: napi.napi_value, prop_name: [*:0]const u8, value: napi.napi_value) Error!void {
         try check(napi.napi_set_named_property(self.env, object, prop_name, value));
     }
@@ -252,7 +282,7 @@ pub const JsContext = struct {
         }
 
         var ref: napi.napi_ref = undefined;
-        res = try self.createEmptyObject();
+        res = try self.createObject();
         try check(napi.napi_wrap(self.env, res, @constCast(val), &deleteRef, @ptrCast(*anyopaque, @constCast(val)), &ref));
         try self.refs.put(allocator, @ptrToInt(val), ref);
 
@@ -311,13 +341,14 @@ pub const JsContext = struct {
             .Bool => self.createBoolean(val),
             .Int, .ComptimeInt, .Float, .ComptimeFloat => self.createNumber(val),
             .Enum => self.createNumber(@as(u32, @enumToInt(val))),
-            .Struct => if (std.meta.trait.isTuple(T)) self.createTuple(val) else self.createObject(val),
+            .Struct => if (std.meta.trait.isTuple(T)) self.createTuple(val) else self.createObjectFrom(val),
             .Optional => self.createOptional(val),
             .Pointer => self.wrapPtr(val),
             else => @compileError("writing " ++ @tagName(@typeInfo(T)) ++ " " ++ @typeName(T) ++ " is not supported"),
         };
     }
 
+    /// Create a JS function.
     pub fn createFunction(self: *JsContext, comptime fun: anytype) Error!napi.napi_value {
         const F = @TypeOf(fun);
         const Args = std.meta.ArgsTuple(F);
@@ -325,7 +356,7 @@ pub const JsContext = struct {
 
         const Helper = struct {
             fn call(env: napi.napi_env, cb_info: napi.napi_callback_info) callconv(.C) napi.napi_value {
-                var js = getInstance(env);
+                var js = JsContext.getInstance(env);
                 const args = readArgs(js, cb_info) catch |e| return js.throw(e);
                 const res = @call(.auto, fun, args);
 
@@ -367,6 +398,7 @@ pub const JsContext = struct {
         return res;
     }
 
+    /// Call a JS function.
     pub fn callFunction(self: *JsContext, recv: napi.napi_value, fun: napi.napi_value, args: anytype) Error!napi.napi_value {
         const Args = @TypeOf(args);
         var argv: [std.meta.fields(Args).len]napi.napi_value = undefined;
