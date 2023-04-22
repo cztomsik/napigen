@@ -161,8 +161,7 @@ pub const JsContext = struct {
     }
 
     pub fn readString(self: *JsContext, val: napi.napi_value) Error![]const u8 {
-        var len: usize = undefined;
-        try check(napi.napi_get_value_string_utf8(self.env, val, null, 0, &len));
+        var len: usize = try self.getStringLength(val);
         var buf = try TEMP.alloc(u8, len + 1);
         try check(napi.napi_get_value_string_utf8(self.env, val, @ptrCast([*c]u8, buf), buf.len, &len));
         return buf[0..len];
@@ -209,6 +208,7 @@ pub const JsContext = struct {
         try check(napi.napi_set_element(self.env, array, index, value));
     }
 
+    /// Create a JS array from a tuple.
     pub fn createTuple(self: *JsContext, val: anytype) Error!napi.napi_value {
         const fields = std.meta.fields(@TypeOf(val));
         var res = try self.createArrayWithLength(fields.len);
@@ -219,6 +219,7 @@ pub const JsContext = struct {
         return res;
     }
 
+    /// Read a JS array into a tuple.
     pub fn readTuple(self: *JsContext, comptime T: type, val: napi.napi_value) Error!T {
         const fields = std.meta.fields(T);
         var res: T = undefined;
