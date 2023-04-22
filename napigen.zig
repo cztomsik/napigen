@@ -33,25 +33,25 @@ pub fn defineModule(comptime init_fn: fn (*JsContext, napi.napi_value) Error!nap
     @export(NapigenNapiModule.register, .{ .name = "napi_register_module_v1", .linkage = .Strong });
 }
 
-// TODO: strings are only valid during the function call
-// threadlocal var arena: ?std.heap.ArenaAllocator = null;
-var TEMP_GPA = std.heap.GeneralPurposeAllocator(.{}){};
-pub const TEMP = TEMP_GPA.allocator();
-
 pub const JsContext = struct {
     env: napi.napi_env,
+    arena: GenerationalArena,
     refs: std.AutoHashMapUnmanaged(usize, napi.napi_ref) = .{},
 
     /// Init the JS context.
     pub fn init(env: napi.napi_env) Error!*JsContext {
         var self = try allocator.create(JsContext);
         try check(napi.napi_set_instance_data(env, self, finalize, null));
-        self.* = .{ .env = env };
+        self.* = .{
+            .env = env,
+            .arena = GenerationalArena.init(allocator),
+        };
         return self;
     }
 
     /// Deinit the JS context.
     pub fn deinit(self: *JsContext) void {
+        self.arena.deinit();
         allocator.destroy(self);
     }
 
@@ -160,19 +160,12 @@ pub const JsContext = struct {
         return res;
     }
 
+    /// Read JS string into a temporary, arena-allocated buffer.
     pub fn readString(self: *JsContext, val: napi.napi_value) Error![]const u8 {
         var len: usize = try self.getStringLength(val);
-        var buf = try TEMP.alloc(u8, len + 1);
+        var buf = try self.arena.allocator().alloc(u8, len + 1);
         try check(napi.napi_get_value_string_utf8(self.env, val, @ptrCast([*c]u8, buf), buf.len, &len));
         return buf[0..len];
-    }
-
-    pub fn createOptional(self: *JsContext, val: anytype) Error!napi.napi_value {
-        return if (val) |v| self.write(v) else self.null();
-    }
-
-    pub fn readOptional(self: *JsContext, comptime T: type, val: napi.napi_value) Error!?T {
-        return if (try self.typeOf(val) == napi.napi_null) null else self.read(T, val);
     }
 
     /// Create an empty JS array.
@@ -186,6 +179,15 @@ pub const JsContext = struct {
     pub fn createArrayWithLength(self: *JsContext, length: u32) Error!napi.napi_value {
         var res: napi.napi_value = undefined;
         try check(napi.napi_create_array_with_length(self.env, length, &res));
+        return res;
+    }
+
+    /// Create a JS array from a native array/slice.
+    pub fn createArrayFrom(self: *JsContext, val: anytype) Error!napi.napi_value {
+        const res = try self.createArrayWithLength(val.len);
+        for (val, 0..) |v, i| {
+            try self.setElement(res, i, try self.write(v));
+        }
         return res;
     }
 
@@ -303,7 +305,8 @@ pub const JsContext = struct {
         }
     }
 
-    pub fn readPtr(self: *JsContext, comptime T: type, val: napi.napi_value) Error!*T {
+    /// Unwrap a pointer from a JS object.
+    pub fn unwrap(self: *JsContext, comptime T: type, val: napi.napi_value) Error!*T {
         var res: *T = undefined;
         try check(napi.napi_unwrap(self.env, val, @ptrCast([*c]?*anyopaque, &res)));
         return res;
@@ -322,8 +325,12 @@ pub const JsContext = struct {
             .Int, .ComptimeInt, .Float, .ComptimeFloat => self.readNumber(T, val),
             .Enum => std.meta.intToEnum(T, self.read(u32, val)),
             .Struct => if (std.meta.trait.isTuple(T)) self.readTuple(T, val) else self.readObject(T, val),
-            .Optional => |info| self.readOptional(info.child, val),
-            .Pointer => |info| self.readPtr(info.child, val),
+            .Optional => |info| if (try self.typeOf(val) == napi.napi_null) null else self.read(info.child, val),
+            .Pointer => |info| switch (info.size) {
+                .One, .C => self.unwrap(info.child, val),
+                .Slice => self.readArray(info.child, val),
+                else => @compileError("reading " ++ @tagName(@typeInfo(T)) ++ " " ++ @typeName(T) ++ " is not supported"),
+            },
             else => @compileError("reading " ++ @tagName(@typeInfo(T)) ++ " " ++ @typeName(T) ++ " is not supported"),
         };
     }
@@ -343,8 +350,12 @@ pub const JsContext = struct {
             .Int, .ComptimeInt, .Float, .ComptimeFloat => self.createNumber(val),
             .Enum => self.createNumber(@as(u32, @enumToInt(val))),
             .Struct => if (std.meta.trait.isTuple(T)) self.createTuple(val) else self.createObjectFrom(val),
-            .Optional => self.createOptional(val),
-            .Pointer => self.wrapPtr(val),
+            .Optional => if (val) |v| self.write(v) else self.null(),
+            .Pointer => |info| switch (info.size) {
+                .One, .C => self.wrapPtr(val),
+                .Slice => self.createArrayFrom(val),
+                else => @compileError("writing " ++ @tagName(@typeInfo(T)) ++ " " ++ @typeName(T) ++ " is not supported"),
+            },
             else => @compileError("writing " ++ @tagName(@typeInfo(T)) ++ " " ++ @typeName(T) ++ " is not supported"),
         };
     }
@@ -358,6 +369,9 @@ pub const JsContext = struct {
         const Helper = struct {
             fn call(env: napi.napi_env, cb_info: napi.napi_callback_info) callconv(.C) napi.napi_value {
                 var js = JsContext.getInstance(env);
+                js.arena.inc();
+                defer js.arena.dec();
+
                 const args = readArgs(js, cb_info) catch |e| return js.throw(e);
                 const res = @call(.auto, fun, args);
 
@@ -410,5 +424,40 @@ pub const JsContext = struct {
         var res: napi.napi_value = undefined;
         try check(napi.napi_call_function(self.env, recv, fun, argv.len, &argv, &res));
         return res;
+    }
+};
+
+// to allow reading strings and other slices, we need to allocate memory
+// somewhere, often, this data is only needed for a short time, so we can
+// use a generational arena to free the memory when it is no longer needed
+// count is increased when a function is called, and decreased when it returns
+// when count reaches 0, the arena is reset (but not freed)
+const GenerationalArena = struct {
+    count: u32 = 0,
+    arena: std.heap.ArenaAllocator,
+
+    pub fn init(child_allocator: std.mem.Allocator) GenerationalArena {
+        return .{
+            .arena = std.heap.ArenaAllocator.init(child_allocator),
+        };
+    }
+
+    pub fn deinit(self: *GenerationalArena) void {
+        self.arena.deinit();
+    }
+
+    pub fn allocator(self: *GenerationalArena) std.mem.Allocator {
+        return self.arena.allocator();
+    }
+
+    pub fn inc(self: *GenerationalArena) void {
+        self.count += 1;
+    }
+
+    pub fn dec(self: *GenerationalArena) void {
+        self.count -= 1;
+        if (self.count == 0) {
+            _ = self.arena.reset(.retain_capacity);
+        }
     }
 };
