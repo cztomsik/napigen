@@ -184,9 +184,9 @@ pub const JsContext = struct {
 
     /// Create a JS array from a native array/slice.
     pub fn createArrayFrom(self: *JsContext, val: anytype) Error!napi.napi_value {
-        const res = try self.createArrayWithLength(val.len);
+        const res = try self.createArrayWithLength(@truncate(u32, val.len));
         for (val, 0..) |v, i| {
-            try self.setElement(res, i, try self.write(v));
+            try self.setElement(res, @truncate(u32, i), try self.write(v));
         }
         return res;
     }
@@ -362,6 +362,11 @@ pub const JsContext = struct {
 
     /// Create a JS function.
     pub fn createFunction(self: *JsContext, comptime fun: anytype) Error!napi.napi_value {
+        return self.createNamedFunction("anonymous", fun);
+    }
+
+    /// Create a named JS function.
+    pub fn createNamedFunction(self: *JsContext, comptime name: [*:0]const u8, comptime fun: anytype) Error!napi.napi_value {
         const F = @TypeOf(fun);
         const Args = std.meta.ArgsTuple(F);
         const Res = @typeInfo(F).Fn.return_type.?;
@@ -409,7 +414,7 @@ pub const JsContext = struct {
         };
 
         var res: napi.napi_value = undefined;
-        try check(napi.napi_create_function(self.env, "", napi.NAPI_AUTO_LENGTH, &Helper.call, null, &res));
+        try check(napi.napi_create_function(self.env, name, napi.NAPI_AUTO_LENGTH, &Helper.call, null, &res));
         return res;
     }
 
