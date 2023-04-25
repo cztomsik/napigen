@@ -198,6 +198,16 @@ pub const JsContext = struct {
         return res;
     }
 
+    /// Read a native slice from a JS array.
+    pub fn readArray(self: *JsContext, comptime T: type, array: napi.napi_value) Error![]T {
+        var len: u32 = try self.getArrayLength(array);
+        var res = try self.arena.allocator().alloc(T, len);
+        for (res, 0..) |*v, i| {
+            v.* = try self.read(T, try self.getElement(array, i));
+        }
+        return res;
+    }
+
     /// Get a JS value from a JS array by index.
     pub fn getElement(self: *JsContext, array: napi.napi_value, index: u32) Error!napi.napi_value {
         var res: napi.napi_value = undefined;
