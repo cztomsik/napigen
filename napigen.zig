@@ -203,7 +203,7 @@ pub const JsContext = struct {
         var len: u32 = try self.getArrayLength(array);
         var res = try self.arena.allocator().alloc(T, len);
         for (res, 0..) |*v, i| {
-            v.* = try self.read(T, try self.getElement(array, i));
+            v.* = try self.read(T, try self.getElement(array, @intCast(u32, i)));
         }
         return res;
     }
