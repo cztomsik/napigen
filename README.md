@@ -147,20 +147,26 @@ Then, change your `build.zig` to something like this:
 ```zig
 ...
 
-const lib = b.addSharedLibrary("example", "src/main.zig", .unversioned);
-lib.setBuildMode(mode);
+const lib = b.addSharedLibrary(.{
+    .name = "example",
+    .root_source_file = .{ .path = "src/main.zig" },
+    .target = target,
+    .optimize = optimize,
+});
 
 // weak-linkage
 lib.linker_allow_shlib_undefined = true;
 
 // add correct path to this lib
-lib.addPackagePath("napigen", "libs/napigen/napigen.zig");
+const napigen = b.createModule(.{ .source_file = .{ .path = "deps/napigen/napigen.zig" } });
+lib.addModule("napigen", napigen);
 
 // build the lib
-lib.install();
+b.installArtifact(lib);
 
 // copy the result to a *.node file so we can require() it
-b.installLibFile(b.pathJoin(&.{ "zig-out/lib", lib.out_lib_filename }), "example.node");
+const copy_node_step = b.addInstallLibFile(lib.getOutputSource(), "example.node");
+b.getInstallStep().dependOn(&copy_node_step.step);
 
 ...
 ```
