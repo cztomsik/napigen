@@ -443,10 +443,10 @@ pub const JsContext = struct {
 };
 
 // to allow reading strings and other slices, we need to allocate memory
-// somewhere, often, this data is only needed for a short time, so we can
-// use a generational arena to free the memory when it is no longer needed
-// count is increased when a function is called, and decreased when it returns
-// when count reaches 0, the arena is reset (but not freed)
+// somewhere, this data is only needed for a short time, so we can use a
+// generational arena to free the memory when it is no longer needed count is
+// increased when a function is called, and decreased when it returns when count
+// reaches 0, the arena is reset (but not freed)
 const GenerationalArena = struct {
     count: u32 = 0,
     arena: std.heap.ArenaAllocator,
