@@ -287,7 +287,7 @@ pub const JsContext = struct {
         var res: napi.napi_value = undefined;
 
         if (self.refs.get(@ptrToInt(val))) |ref| {
-            if (napi.napi_get_reference_value(self.env, ref, &res) == napi.napi_ok) {
+            if (napi.napi_get_reference_value(self.env, ref, &res) == napi.napi_ok and res != null) {
                 return res;
             } else {
                 _ = napi.napi_delete_reference(self.env, ref);
