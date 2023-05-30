@@ -440,6 +440,27 @@ pub const JsContext = struct {
         try check(napi.napi_call_function(self.env, recv, fun, argv.len, &argv, &res));
         return res;
     }
+
+    /// Export a single declaration.
+    pub fn exportOne(self: *JsContext, exports: napi.napi_value, comptime name: []const u8, val: anytype) Error!void {
+        const c_name = name ++ "";
+
+        if (comptime trait.is(.Fn)(@TypeOf(val))) {
+            try self.setNamedProperty(exports, c_name, try self.createNamedFunction(c_name, val));
+        } else {
+            try self.setNamedProperty(exports, c_name, try self.write(val));
+        }
+    }
+
+    /// Export all public declarations from a module.
+    pub fn exportAll(self: *JsContext, exports: napi.napi_value, comptime mod: anytype) Error!void {
+        inline for (comptime std.meta.declarations(mod)) |d| {
+            if (!d.is_pub) continue;
+            if (@TypeOf(@field(mod, d.name)) == type) continue;
+
+            try self.exportOne(exports, d.name, @field(mod, d.name));
+        }
+    }
 };
 
 // to allow reading strings and other slices, we need to allocate memory
