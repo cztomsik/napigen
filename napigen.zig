@@ -22,7 +22,7 @@ pub fn check(status: napi.napi_status) Error!void {
 pub const allocator = std.heap.c_allocator;
 
 /// Convenience helper to define N-API module with a single function
-pub fn defineModule(comptime init_fn: fn (*JsContext, napi.napi_value) Error!napi.napi_value) void {
+pub fn defineModule(comptime init_fn: fn (*JsContext, napi.napi_value) anyerror!napi.napi_value) void {
     const NapigenNapiModule = struct {
         fn register(env: napi.napi_env, exports: napi.napi_value) callconv(.C) napi.napi_value {
             var cx = JsContext.init(env) catch @panic("could not init JS context");
@@ -463,11 +463,11 @@ pub const JsContext = struct {
     }
 };
 
-// to allow reading strings and other slices, we need to allocate memory
-// somewhere, this data is only needed for a short time, so we can use a
-// generational arena to free the memory when it is no longer needed count is
-// increased when a function is called, and decreased when it returns when count
-// reaches 0, the arena is reset (but not freed)
+// To allow reading strings and other slices, we need to allocate memory
+// somewhere. Such data is only needed for a short time, so we can use a
+// generational arena to free the memory when it is no longer needed
+// - count is increased when a function is called and decreased when it returns
+// - when count reaches 0, the arena is reset (but not freed)
 const GenerationalArena = struct {
     count: u32 = 0,
     arena: std.heap.ArenaAllocator,
