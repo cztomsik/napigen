@@ -208,6 +208,15 @@ pub const JsContext = struct {
         return res;
     }
 
+    /// Read a native fixed-size array from a JS array.
+    pub fn readArrayFixed(self: *JsContext, comptime T: type, comptime len: usize, array: napi.napi_value) Error![len]T {
+        var res: [len]T = undefined;
+        for (0..len) |i| {
+            res[i] = try self.read(T, try self.getElement(array, @intCast(u32, i)));
+        }
+        return res;
+    }
+
     /// Get a JS value from a JS array by index.
     pub fn getElement(self: *JsContext, array: napi.napi_value, index: u32) Error!napi.napi_value {
         var res: napi.napi_value = undefined;
@@ -341,6 +350,7 @@ pub const JsContext = struct {
                 .Slice => self.readArray(info.child, val),
                 else => @compileError("reading " ++ @tagName(@typeInfo(T)) ++ " " ++ @typeName(T) ++ " is not supported"),
             },
+            .Array => |info| try self.readArrayFixed(info.child, info.len, val),
             else => @compileError("reading " ++ @tagName(@typeInfo(T)) ++ " " ++ @typeName(T) ++ " is not supported"),
         };
     }
@@ -366,6 +376,7 @@ pub const JsContext = struct {
                 .Slice => self.createArrayFrom(val),
                 else => @compileError("writing " ++ @tagName(@typeInfo(T)) ++ " " ++ @typeName(T) ++ " is not supported"),
             },
+            .Array => self.createArrayFrom(val),
             else => @compileError("writing " ++ @tagName(@typeInfo(T)) ++ " " ++ @typeName(T) ++ " is not supported"),
         };
     }
