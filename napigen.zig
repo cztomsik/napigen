@@ -295,7 +295,7 @@ pub const JsContext = struct {
 
         var res: napi.napi_value = undefined;
 
-        if (self.refs.get(@ptrToInt(val))) |ref| {
+        if (self.refs.get(@intFromPtr(val))) |ref| {
             if (napi.napi_get_reference_value(self.env, ref, &res) == napi.napi_ok and res != null) {
                 return res;
             } else {
@@ -306,7 +306,7 @@ pub const JsContext = struct {
         var ref: napi.napi_ref = undefined;
         res = try self.createObject();
         try check(napi.napi_wrap(self.env, res, @constCast(val), &deleteRef, @ptrCast(*anyopaque, @constCast(val)), &ref));
-        try self.refs.put(allocator, @ptrToInt(val), ref);
+        try self.refs.put(allocator, @intFromPtr(val), ref);
 
         return res;
     }
@@ -314,13 +314,13 @@ pub const JsContext = struct {
     fn deleteRef(env: napi.napi_env, _: ?*anyopaque, ptr: ?*anyopaque) callconv(.C) void {
         var js = JsContext.getInstance(env);
 
-        if (js.refs.get(@ptrToInt(ptr.?))) |ref| {
+        if (js.refs.get(@intFromPtr(ptr.?))) |ref| {
             // not sure if this is really needed but if we have a new ref and it's valid, we want to skip this
             var val: napi.napi_value = undefined;
             if (napi.napi_get_reference_value(env, ref, &val) == napi.napi_ok) return;
 
             _ = napi.napi_delete_reference(env, ref);
-            _ = js.refs.remove(@ptrToInt(ptr.?));
+            _ = js.refs.remove(@intFromPtr(ptr.?));
         }
     }
 
@@ -368,7 +368,7 @@ pub const JsContext = struct {
             .Null => self.null(),
             .Bool => self.createBoolean(val),
             .Int, .ComptimeInt, .Float, .ComptimeFloat => self.createNumber(val),
-            .Enum => self.createNumber(@as(u32, @enumToInt(val))),
+            .Enum => self.createNumber(@as(u32, @intFromEnum(val))),
             .Struct => if (std.meta.trait.isTuple(T)) self.createTuple(val) else self.createObjectFrom(val),
             .Optional => if (val) |v| self.write(v) else self.null(),
             .Pointer => |info| switch (info.size) {
