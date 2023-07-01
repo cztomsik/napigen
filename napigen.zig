@@ -58,7 +58,7 @@ pub const JsContext = struct {
     /// Retreive the JS context from the N-API environment.
     fn getInstance(env: napi.napi_env) *JsContext {
         var res: *JsContext = undefined;
-        check(napi.napi_get_instance_data(env, @ptrCast([*c]?*anyopaque, &res))) catch @panic("could not get JS context");
+        check(napi.napi_get_instance_data(env, @ptrCast(&res))) catch @panic("could not get JS context");
         return res;
     }
 
@@ -75,7 +75,7 @@ pub const JsContext = struct {
 
     /// Throw an error.
     pub fn throw(self: *JsContext, err: anyerror) napi.napi_value {
-        const msg = @ptrCast([*c]const u8, @errorName(err));
+        const msg = @as([*c]const u8, @ptrCast(@errorName(err)));
         check(napi.napi_throw_error(self.env, null, msg)) catch |e| {
             if (e != error.napi_pending_exception) std.debug.panic("throw failed {s} {any}", .{ msg, e });
         };
@@ -132,13 +132,13 @@ pub const JsContext = struct {
         var lossless: bool = undefined; // TODO: check overflow?
 
         switch (T) {
-            u8, u16 => res = @truncate(T, try self.read(u32, val)),
+            u8, u16 => res = @as(T, @truncate(try self.read(u32, val))),
             u32, c_uint => try check(napi.napi_get_value_uint32(self.env, val, &res)),
             u64, usize => try check(napi.napi_get_value_bigint_uint64(self.env, val, &res, &lossless)),
-            i8, i16 => res = @truncate(T, self.read(i32, val)),
+            i8, i16 => res = @as(T, @truncate(self.read(i32, val))),
             i32, c_int => try check(napi.napi_get_value_int32(self.env, val, &res)),
             i64, isize => try check(napi.napi_get_value_bigint_int64(self.env, val, &res, &lossless)),
-            f16, f32 => res = @floatCast(T, try self.readNumber(f64, val)),
+            f16, f32 => res = @as(T, @floatCast(try self.readNumber(f64, val))),
             f64 => try check(napi.napi_get_value_double(self.env, val, &res)),
             else => @compileError(@typeName(T) ++ " is not supported number"),
         }
@@ -149,7 +149,7 @@ pub const JsContext = struct {
     /// Create a JS string value.
     pub fn createString(self: *JsContext, val: []const u8) Error!napi.napi_value {
         var res: napi.napi_value = undefined;
-        try check(napi.napi_create_string_utf8(self.env, @ptrCast([*c]const u8, val), val.len, &res));
+        try check(napi.napi_create_string_utf8(self.env, @as([*c]const u8, @ptrCast(val)), val.len, &res));
         return res;
     }
 
@@ -164,7 +164,7 @@ pub const JsContext = struct {
     pub fn readString(self: *JsContext, val: napi.napi_value) Error![]const u8 {
         var len: usize = try self.getStringLength(val);
         var buf = try self.arena.allocator().alloc(u8, len + 1);
-        try check(napi.napi_get_value_string_utf8(self.env, val, @ptrCast([*c]u8, buf), buf.len, &len));
+        try check(napi.napi_get_value_string_utf8(self.env, val, @as([*c]u8, @ptrCast(buf)), buf.len, &len));
         return buf[0..len];
     }
 
@@ -184,9 +184,9 @@ pub const JsContext = struct {
 
     /// Create a JS array from a native array/slice.
     pub fn createArrayFrom(self: *JsContext, val: anytype) Error!napi.napi_value {
-        const res = try self.createArrayWithLength(@truncate(u32, val.len));
+        const res = try self.createArrayWithLength(@as(u32, @truncate(val.len)));
         for (val, 0..) |v, i| {
-            try self.setElement(res, @truncate(u32, i), try self.write(v));
+            try self.setElement(res, @as(u32, @truncate(i)), try self.write(v));
         }
         return res;
     }
@@ -203,7 +203,7 @@ pub const JsContext = struct {
         var len: u32 = try self.getArrayLength(array);
         var res = try self.arena.allocator().alloc(T, len);
         for (res, 0..) |*v, i| {
-            v.* = try self.read(T, try self.getElement(array, @intCast(u32, i)));
+            v.* = try self.read(T, try self.getElement(array, @as(u32, @intCast(i))));
         }
         return res;
     }
@@ -212,7 +212,7 @@ pub const JsContext = struct {
     pub fn readArrayFixed(self: *JsContext, comptime T: type, comptime len: usize, array: napi.napi_value) Error![len]T {
         var res: [len]T = undefined;
         for (0..len) |i| {
-            res[i] = try self.read(T, try self.getElement(array, @intCast(u32, i)));
+            res[i] = try self.read(T, try self.getElement(array, @as(u32, @intCast(i))));
         }
         return res;
     }
@@ -235,7 +235,7 @@ pub const JsContext = struct {
         var res = try self.createArrayWithLength(fields.len);
         inline for (fields, 0..) |f, i| {
             const v = try self.write(@field(val, f.name));
-            try self.setElement(res, @truncate(u32, i), v);
+            try self.setElement(res, @as(u32, @truncate(i)), v);
         }
         return res;
     }
@@ -245,7 +245,7 @@ pub const JsContext = struct {
         const fields = std.meta.fields(T);
         var res: T = undefined;
         inline for (fields, 0..) |f, i| {
-            const v = try self.getElement(val, @truncate(u32, i));
+            const v = try self.getElement(val, @as(u32, @truncate(i)));
             @field(res, f.name) = try self.read(f.type, v);
         }
         return res;
@@ -305,7 +305,7 @@ pub const JsContext = struct {
 
         var ref: napi.napi_ref = undefined;
         res = try self.createObject();
-        try check(napi.napi_wrap(self.env, res, @constCast(val), &deleteRef, @ptrCast(*anyopaque, @constCast(val)), &ref));
+        try check(napi.napi_wrap(self.env, res, @constCast(val), &deleteRef, @as(*anyopaque, @ptrCast(@constCast(val))), &ref));
         try self.refs.put(allocator, @intFromPtr(val), ref);
 
         return res;
@@ -327,7 +327,7 @@ pub const JsContext = struct {
     /// Unwrap a pointer from a JS object.
     pub fn unwrap(self: *JsContext, comptime T: type, val: napi.napi_value) Error!*T {
         var res: *T = undefined;
-        try check(napi.napi_unwrap(self.env, val, @ptrCast([*c]?*anyopaque, &res)));
+        try check(napi.napi_unwrap(self.env, val, @as([*c]?*anyopaque, @ptrCast(&res))));
         return res;
     }
 
