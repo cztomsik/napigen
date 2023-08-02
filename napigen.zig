@@ -466,7 +466,6 @@ pub const JsContext = struct {
     /// Export all public declarations from a module.
     pub fn exportAll(self: *JsContext, exports: napi.napi_value, comptime mod: anytype) Error!void {
         inline for (comptime std.meta.declarations(mod)) |d| {
-            if (!d.is_pub) continue;
             if (@TypeOf(@field(mod, d.name)) == type) continue;
 
             try self.exportOne(exports, d.name, @field(mod, d.name));
