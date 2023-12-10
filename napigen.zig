@@ -61,8 +61,10 @@ pub const JsContext = struct {
         return res;
     }
 
-    fn finalize(env: napi.napi_env, _: ?*anyopaque, _: ?*anyopaque) callconv(.C) void {
-        getInstance(env).deinit();
+    fn finalize(_: napi.napi_env, data: ?*anyopaque, _: ?*anyopaque) callconv(.C) void {
+        // instance data might be already destroyed
+        const self: *JsContext = @ptrCast(@alignCast(data));
+        self.deinit();
     }
 
     /// Get the type of a JS value.
