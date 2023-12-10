@@ -1,6 +1,5 @@
 const root = @import("root");
 const std = @import("std");
-const trait = std.meta.trait;
 const napi = @import("napi.zig");
 
 // export the whole napi
@@ -40,7 +39,7 @@ pub const JsContext = struct {
 
     /// Init the JS context.
     pub fn init(env: napi.napi_env) Error!*JsContext {
-        var self = try allocator.create(JsContext);
+        const self = try allocator.create(JsContext);
         try check(napi.napi_set_instance_data(env, self, finalize, null));
         self.* = .{
             .env = env,
@@ -200,8 +199,8 @@ pub const JsContext = struct {
 
     /// Read a native slice from a JS array.
     pub fn readArray(self: *JsContext, comptime T: type, array: napi.napi_value) Error![]T {
-        var len: u32 = try self.getArrayLength(array);
-        var res = try self.arena.allocator().alloc(T, len);
+        const len: u32 = try self.getArrayLength(array);
+        const res = try self.arena.allocator().alloc(T, len);
         for (res, 0..) |*v, i| {
             v.* = try self.read(T, try self.getElement(array, @as(u32, @intCast(i))));
         }
@@ -232,7 +231,7 @@ pub const JsContext = struct {
     /// Create a JS array from a tuple.
     pub fn createTuple(self: *JsContext, val: anytype) Error!napi.napi_value {
         const fields = std.meta.fields(@TypeOf(val));
-        var res = try self.createArrayWithLength(fields.len);
+        const res = try self.createArrayWithLength(fields.len);
         inline for (fields, 0..) |f, i| {
             const v = try self.write(@field(val, f.name));
             try self.setElement(res, @as(u32, @truncate(i)), v);
@@ -260,9 +259,9 @@ pub const JsContext = struct {
 
     /// Create a JS object from a native value.
     pub fn createObjectFrom(self: *JsContext, val: anytype) Error!napi.napi_value {
-        var res: napi.napi_value = try self.createObject();
+        const res: napi.napi_value = try self.createObject();
         inline for (std.meta.fields(@TypeOf(val))) |f| {
-            var v = try self.write(@field(val, f.name));
+            const v = try self.write(@field(val, f.name));
             try self.setNamedProperty(res, f.name ++ "", v);
         }
         return res;
@@ -272,7 +271,7 @@ pub const JsContext = struct {
     pub fn readObject(self: *JsContext, comptime T: type, val: napi.napi_value) Error!T {
         var res: T = undefined;
         inline for (std.meta.fields(T)) |f| {
-            var v = try self.getNamedProperty(val, f.name ++ "");
+            const v = try self.getNamedProperty(val, f.name ++ "");
             @field(res, f.name) = try self.read(f.type, v);
         }
         return res;
@@ -291,7 +290,8 @@ pub const JsContext = struct {
     }
 
     pub fn wrapPtr(self: *JsContext, val: anytype) Error!napi.napi_value {
-        if (comptime trait.isPtrTo(.Fn)(@TypeOf(val))) @compileError("use createFunction() to export functions");
+        const info = @typeInfo(@TypeOf(val));
+        if (comptime info == .Pointer and @typeInfo(info.Pointer.child) == .Fn) @compileError("use createFunction() to export functions");
 
         var res: napi.napi_value = undefined;
 
@@ -335,7 +335,7 @@ pub const JsContext = struct {
 
     pub fn defaultRead(self: *JsContext, comptime T: type, val: napi.napi_value) Error!T {
         if (T == napi.napi_value) return val;
-        if (comptime trait.isZigString(T)) return self.readString(val);
+        if (comptime isString(T)) return self.readString(val);
 
         return switch (@typeInfo(T)) {
             .Void => void{},
@@ -343,7 +343,7 @@ pub const JsContext = struct {
             .Bool => self.readBoolean(val),
             .Int, .ComptimeInt, .Float, .ComptimeFloat => self.readNumber(T, val),
             .Enum => std.meta.intToEnum(T, self.read(u32, val)),
-            .Struct => if (std.meta.trait.isTuple(T)) self.readTuple(T, val) else self.readObject(T, val),
+            .Struct => if (isTuple(T)) self.readTuple(T, val) else self.readObject(T, val),
             .Optional => |info| if (try self.typeOf(val) == napi.napi_null) null else self.read(info.child, val),
             .Pointer => |info| switch (info.size) {
                 .One, .C => self.unwrap(info.child, val),
@@ -361,7 +361,7 @@ pub const JsContext = struct {
         const T = @TypeOf(val);
 
         if (T == napi.napi_value) return val;
-        if (comptime trait.isZigString(T)) return self.createString(val);
+        if (comptime isString(T)) return self.createString(val);
 
         return switch (@typeInfo(T)) {
             .Void => self.undefined(),
@@ -369,7 +369,7 @@ pub const JsContext = struct {
             .Bool => self.createBoolean(val),
             .Int, .ComptimeInt, .Float, .ComptimeFloat => self.createNumber(val),
             .Enum => self.createNumber(@as(u32, @intFromEnum(val))),
-            .Struct => if (std.meta.trait.isTuple(T)) self.createTuple(val) else self.createObjectFrom(val),
+            .Struct => if (isTuple(T)) self.createTuple(val) else self.createObjectFrom(val),
             .Optional => if (val) |v| self.write(v) else self.null(),
             .Pointer => |info| switch (info.size) {
                 .One, .C => self.wrapPtr(val),
@@ -401,7 +401,7 @@ pub const JsContext = struct {
                 const args = readArgs(js, cb_info) catch |e| return js.throw(e);
                 const res = @call(.auto, fun, args);
 
-                if (comptime trait.is(.ErrorUnion)(Res)) {
+                if (comptime @typeInfo(Res) == .ErrorUnion) {
                     return if (res) |r| js.write(r) catch |e| js.throw(e) else |e| js.throw(e);
                 } else {
                     return js.write(res) catch |e| js.throw(e);
@@ -456,7 +456,7 @@ pub const JsContext = struct {
     pub fn exportOne(self: *JsContext, exports: napi.napi_value, comptime name: []const u8, val: anytype) Error!void {
         const c_name = name ++ "";
 
-        if (comptime trait.is(.Fn)(@TypeOf(val))) {
+        if (comptime @typeInfo(@TypeOf(val)) == .Fn) {
             try self.setNamedProperty(exports, c_name, try self.createNamedFunction(c_name, val));
         } else {
             try self.setNamedProperty(exports, c_name, try self.write(val));
@@ -507,3 +507,17 @@ const GenerationalArena = struct {
         }
     }
 };
+
+fn isString(comptime T: type) bool {
+    return switch (@typeInfo(T)) {
+        .Pointer => |ptr| ptr.size == .Slice and ptr.child == u8,
+        else => return false,
+    };
+}
+
+fn isTuple(comptime T: type) bool {
+    return switch (@typeInfo(T)) {
+        .Struct => |s| s.is_tuple,
+        else => return false,
+    };
+}
