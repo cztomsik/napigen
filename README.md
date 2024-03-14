@@ -5,6 +5,8 @@ Comptime N-API bindings for Zig.
 > **NOTE: This library is still in early development and the API is subject to
 > change.**
 >
+> You need to use latest Zig master to use this library.
+>
 > See [ggml-js](https://github.com/cztomsik/ggml-js) for a complete, real-world
 > example.
 
@@ -103,7 +105,7 @@ which will allow you to use `try` anywhere inside:
 ```zig
 comptime { napigen.defineModule(initModule) }
 
-fn initModule(js: *napigen.JsContext, exports: napigen.napi_value) !napigen.napi_value {
+fn initModule(js: *napigen.JsContext, exports: napigen.napi_value) anyerror!napigen.napi_value {
     try js.setNamedProperty(exports, ...);
     ...
 
@@ -173,14 +175,14 @@ const lib = b.addSharedLibrary(.{
 lib.linker_allow_shlib_undefined = true;
 
 // add correct path to this lib
-const napigen = b.createModule(.{ .source_file = .{ .path = "deps/napigen/napigen.zig" } });
-lib.addModule("napigen", napigen);
+const napigen = b.createModule(.{ .root_source_file = .{ .path = "deps/napigen/napigen.zig" } });
+lib.root_module.addImport("napigen", napigen);
 
 // build the lib
 b.installArtifact(lib);
 
 // copy the result to a *.node file so we can require() it
-const copy_node_step = b.addInstallLibFile(lib.getOutputSource(), "example.node");
+const copy_node_step = b.addInstallLibFile(lib.getEmittedBin(), "example.node");
 b.getInstallStep().dependOn(&copy_node_step.step);
 
 ...

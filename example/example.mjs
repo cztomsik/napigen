@@ -1,5 +1,5 @@
 // run with:
-// zig build && node example.js
+// zig build && node example.mjs
 
 import { createRequire } from 'node:module'
 const require = createRequire(import.meta.url)

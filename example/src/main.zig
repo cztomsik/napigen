@@ -9,7 +9,7 @@ comptime {
     napigen.defineModule(initModule);
 }
 
-fn initModule(js: *napigen.JsContext, exports: napigen.napi_value) !napigen.napi_value {
+fn initModule(js: *napigen.JsContext, exports: napigen.napi_value) anyerror!napigen.napi_value {
     try js.setNamedProperty(exports, "add", try js.createFunction(add));
 
     return exports;
