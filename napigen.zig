@@ -29,7 +29,7 @@ pub fn defineModule(comptime init_fn: fn (*JsContext, napi.napi_value) anyerror!
         }
     };
 
-    @export(NapigenNapiModule.register, .{ .name = "napi_register_module_v1", .linkage = .Strong });
+    @export(NapigenNapiModule.register, .{ .name = "napi_register_module_v1", .linkage = .strong });
 }
 
 pub const JsContext = struct {
