@@ -116,6 +116,7 @@ pub const JsContext = struct {
         var res: napi.napi_value = undefined;
 
         switch (@TypeOf(val)) {
+            u0 => try check(napi.napi_create_int32(self.env, 0, &res)),
             u8, u16, u32, c_uint => try check(napi.napi_create_uint32(self.env, val, &res)),
             u64, usize => try check(napi.napi_create_bigint_uint64(self.env, val, &res)),
             i8, i16, i32, c_int => try check(napi.napi_create_int32(self.env, val, &res)),
@@ -337,6 +338,7 @@ pub const JsContext = struct {
 
     pub fn defaultRead(self: *JsContext, comptime T: type, val: napi.napi_value) Error!T {
         if (T == napi.napi_value) return val;
+        // This line makes passing array of numbers to not parse properly btw
         if (comptime isString(T)) return self.readString(val);
 
         return switch (@typeInfo(T)) {
@@ -379,6 +381,16 @@ pub const JsContext = struct {
                 else => @compileError("writing " ++ @tagName(@typeInfo(T)) ++ " " ++ @typeName(T) ++ " is not supported"),
             },
             .Array => self.createArrayFrom(val),
+            .Union => {
+                const tagName = @tagName(val);
+                inline for(comptime std.meta.fields(T))|field|{
+                     if(std.mem.eql(u8, field.name, tagName)) {
+                        const fieldData = @field(val, field.name);
+                        return self.write(fieldData);
+                     }
+                } 
+               return self.null();
+            },
             else => @compileError("writing " ++ @tagName(@typeInfo(T)) ++ " " ++ @typeName(T) ++ " is not supported"),
         };
     }
