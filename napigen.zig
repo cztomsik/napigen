@@ -379,6 +379,18 @@ pub const JsContext = struct {
                 else => @compileError("writing " ++ @tagName(@typeInfo(T)) ++ " " ++ @typeName(T) ++ " is not supported"),
             },
             .Array => self.createArrayFrom(val),
+            .Union => {
+                const tagName = @tagName(val);
+                inline for(comptime std.meta.fields(T))|field|{
+                     if(std.mem.eql(u8, field.name, tagName)) {
+                        const fieldData = @field(val, field.name);
+                        const unionTaggedJsObject = try self.createObject();
+                        try self.setNamedProperty(unionTaggedJsObject, field.name ++ "", try self.write(fieldData));
+                        return unionTaggedJsObject;
+                     }
+                } 
+               return self.null();
+            },
             else => @compileError("writing " ++ @tagName(@typeInfo(T)) ++ " " ++ @typeName(T) ++ " is not supported"),
         };
     }
