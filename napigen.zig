@@ -384,7 +384,9 @@ pub const JsContext = struct {
                 inline for(comptime std.meta.fields(T))|field|{
                      if(std.mem.eql(u8, field.name, tagName)) {
                         const fieldData = @field(val, field.name);
-                        return self.write(fieldData);
+                        const unionTaggedJsObject = try self.createObject();
+                        try self.setNamedProperty(unionTaggedJsObject, field.name ++ "", try self.write(fieldData));
+                        return unionTaggedJsObject;
                      }
                 } 
                return self.null();
