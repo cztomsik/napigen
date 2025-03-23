@@ -29,7 +29,7 @@ pub fn defineModule(comptime init_fn: fn (*JsContext, napi.napi_value) anyerror!
         }
     };
 
-    @export(NapigenNapiModule.register, .{ .name = "napi_register_module_v1", .linkage = .strong });
+    @export(&NapigenNapiModule.register, .{ .name = "napi_register_module_v1", .linkage = .strong });
 }
 
 pub const JsContext = struct {
@@ -340,19 +340,19 @@ pub const JsContext = struct {
         if (comptime isString(T)) return self.readString(val);
 
         return switch (@typeInfo(T)) {
-            .Void => void{},
-            .Null => null,
-            .Bool => self.readBoolean(val),
-            .Int, .ComptimeInt, .Float, .ComptimeFloat => self.readNumber(T, val),
-            .Enum => std.meta.intToEnum(T, self.read(u32, val)),
-            .Struct => if (isTuple(T)) self.readTuple(T, val) else self.readObject(T, val),
-            .Optional => |info| if (try self.typeOf(val) == napi.napi_null) null else self.read(info.child, val),
-            .Pointer => |info| switch (info.size) {
-                .One, .C => self.unwrap(info.child, val),
-                .Slice => self.readArray(info.child, val),
+            .void => void{},
+            .null => null,
+            .bool => self.readBoolean(val),
+            .int, .comptime_int, .float, .comptime_float => self.readNumber(T, val),
+            .@"enum" => std.meta.intToEnum(T, self.read(u32, val)),
+            .@"struct" => if (isTuple(T)) self.readTuple(T, val) else self.readObject(T, val),
+            .optional => |info| if (try self.typeOf(val) == napi.napi_null) null else self.read(info.child, val),
+            .pointer => |info| switch (info.size) {
+                .one, .c => self.unwrap(info.child, val),
+                .slice => self.readArray(info.child, val),
                 else => @compileError("reading " ++ @tagName(@typeInfo(T)) ++ " " ++ @typeName(T) ++ " is not supported"),
             },
-            .Array => |info| try self.readArrayFixed(info.child, info.len, val),
+            .array => |info| try self.readArrayFixed(info.child, info.len, val),
             else => @compileError("reading " ++ @tagName(@typeInfo(T)) ++ " " ++ @typeName(T) ++ " is not supported"),
         };
     }
@@ -366,19 +366,19 @@ pub const JsContext = struct {
         if (comptime isString(T)) return self.createString(val);
 
         return switch (@typeInfo(T)) {
-            .Void => self.undefined(),
-            .Null => self.null(),
-            .Bool => self.createBoolean(val),
-            .Int, .ComptimeInt, .Float, .ComptimeFloat => self.createNumber(val),
-            .Enum => self.createNumber(@as(u32, @intFromEnum(val))),
-            .Struct => if (isTuple(T)) self.createTuple(val) else self.createObjectFrom(val),
-            .Optional => if (val) |v| self.write(v) else self.null(),
-            .Pointer => |info| switch (info.size) {
-                .One, .C => self.wrapPtr(val),
-                .Slice => self.createArrayFrom(val),
+            .void => self.undefined(),
+            .null => self.null(),
+            .bool => self.createBoolean(val),
+            .int, .comptime_int, .float, .comptime_float => self.createNumber(val),
+            .@"enum" => self.createNumber(@as(u32, @intFromEnum(val))),
+            .@"struct" => if (isTuple(T)) self.createTuple(val) else self.createObjectFrom(val),
+            .optional => if (val) |v| self.write(v) else self.null(),
+            .pointer => |info| switch (info.size) {
+                .one, .c => self.wrapPtr(val),
+                .slice => self.createArrayFrom(val),
                 else => @compileError("writing " ++ @tagName(@typeInfo(T)) ++ " " ++ @typeName(T) ++ " is not supported"),
             },
-            .Array => self.createArrayFrom(val),
+            .array => self.createArrayFrom(val),
             else => @compileError("writing " ++ @tagName(@typeInfo(T)) ++ " " ++ @typeName(T) ++ " is not supported"),
         };
     }
@@ -392,7 +392,7 @@ pub const JsContext = struct {
     pub fn createNamedFunction(self: *JsContext, comptime name: [*:0]const u8, comptime fun: anytype) Error!napi.napi_value {
         const F = @TypeOf(fun);
         const Args = std.meta.ArgsTuple(F);
-        const Res = @typeInfo(F).Fn.return_type.?;
+        const Res = @typeInfo(F).@"fn".return_type.?;
 
         const Helper = struct {
             fn call(env: napi.napi_env, cb_info: napi.napi_callback_info) callconv(.C) napi.napi_value {
@@ -403,7 +403,7 @@ pub const JsContext = struct {
                 const args = readArgs(js, cb_info) catch |e| return js.throw(e);
                 const res = @call(.auto, fun, args);
 
-                if (comptime @typeInfo(Res) == .ErrorUnion) {
+                if (comptime @typeInfo(Res) == .error_union) {
                     return if (res) |r| js.write(r) catch |e| js.throw(e) else |e| js.throw(e);
                 } else {
                     return js.write(res) catch |e| js.throw(e);
@@ -512,14 +512,14 @@ const GenerationalArena = struct {
 
 fn isString(comptime T: type) bool {
     return switch (@typeInfo(T)) {
-        .Pointer => |ptr| ptr.size == .Slice and ptr.child == u8,
+        .pointer => |ptr| ptr.size == .Slice and ptr.child == u8,
         else => return false,
     };
 }
 
 fn isTuple(comptime T: type) bool {
     return switch (@typeInfo(T)) {
-        .Struct => |s| s.is_tuple,
+        .@"struct" => |s| s.is_tuple,
         else => return false,
     };
 }

@@ -2,10 +2,7 @@
 
 Comptime N-API bindings for Zig.
 
-> **NOTE: This library is still in early development and the API is subject to
-> change.**
->
-> You need to use latest Zig master to use this library.
+> You need to use latest Zig 0.14.0 to use this library.
 >
 > See [ggml-js](https://github.com/cztomsik/ggml-js) for a complete, real-world
 > example.

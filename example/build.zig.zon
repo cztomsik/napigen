@@ -1,0 +1,14 @@
+.{
+    .name = .example,
+    .fingerprint = 0x6eec9b9fb837cee4,
+    .version = "0.0.1",
+
+    .dependencies = .{
+        .napigen = .{
+            .path = "..",
+        },
+    },
+    .paths = .{
+        "",
+    },
+}

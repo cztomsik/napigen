@@ -1,0 +1,15 @@
+.{
+    .name = .napigen,
+    .fingerprint = 0xc5a96267ba889862,
+    .version = "0.1.0",
+
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "LICENSE",
+        "README.md",
+    },
+
+    .dependencies = .{},
+}
