@@ -148,7 +148,9 @@ pub fn napigenWrite(js: *napigen.JsContext, value: anytype) !napigen.napi_value 
 
 ## Complete example
 
-First, create a new library:
+The repository includes a complete example in the `example` directory. Here's a quick walkthrough:
+
+**1. Create a new library**
 
 ```bash
 mkdir example
@@ -156,34 +158,47 @@ cd example
 zig init-lib
 ```
 
+**2. Add napigen as zig module.**
+
+```
+zig fetch --save git+https://github.com/cztomsik/napigen#master
+```
+
+**3. Update build.zig**
+
 Then, change your `build.zig` to something like this:
 
 ```zig
-...
+const std = @import("std");
 
-const lib = b.addSharedLibrary(.{
-    .name = "example",
-    .root_source_file = .{ .path = "src/main.zig" },
-    .target = target,
-    .optimize = optimize,
-});
+pub fn build(b: *std.Build) void {
+    const target = b.standardTargetOptions(.{});
+    const optimize = b.standardOptimizeOption(.{});
 
-// weak-linkage
-lib.linker_allow_shlib_undefined = true;
+    const lib = b.addSharedLibrary(.{
+        .name = "example",
+        .root_source_file = b.path("src/main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
 
-// add correct path to this lib
-const napigen = b.createModule(.{ .root_source_file = .{ .path = "deps/napigen/napigen.zig" } });
-lib.root_module.addImport("napigen", napigen);
+    // Use weak-linkage
+    lib.linker_allow_shlib_undefined = true;
 
-// build the lib
-b.installArtifact(lib);
+    // Add napigen
+    const napigen = b.dependency("napigen", .{});
+    lib.root_module.addImport("napigen", napigen.module("napigen"));
 
-// copy the result to a *.node file so we can require() it
-const copy_node_step = b.addInstallLibFile(lib.getEmittedBin(), "example.node");
-b.getInstallStep().dependOn(&copy_node_step.step);
+    // Build the lib
+    b.installArtifact(lib);
 
-...
+    // Copy the result to a *.node file so we can require() it
+    const copy_node_step = b.addInstallLibFile(lib.getEmittedBin(), "example.node");
+    b.getInstallStep().dependOn(&copy_node_step.step);
+}
 ```
+
+**4. Define & export something useful**
 
 Next, define some functions and the N-API module itself in `src/main.zig`
 
@@ -199,12 +214,14 @@ comptime {
     napigen.defineModule(initModule);
 }
 
-fn initModule(js: *napigen.JsContext, exports: napigen.napi_value) !napigen.napi_value {
+fn initModule(js: *napigen.JsContext, exports: napigen.napi_value) anyerror!napigen.napi_value {
     try js.setNamedProperty(exports, "add", try js.createFunction(add));
 
     return exports;
 }
 ```
+
+**5. Use it from JS side**
 
 Finally, use it from JavaScript as expected:
 
