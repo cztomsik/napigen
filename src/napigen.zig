@@ -293,7 +293,7 @@ pub const JsContext = struct {
 
     pub fn wrapPtr(self: *JsContext, val: anytype) Error!napi.napi_value {
         const info = @typeInfo(@TypeOf(val));
-        if (comptime info == .Pointer and @typeInfo(info.Pointer.child) == .Fn) @compileError("use createFunction() to export functions");
+        if (comptime info == .pointer and @typeInfo(info.pointer.child) == .@"fn") @compileError("use createFunction() to export functions");
 
         var res: napi.napi_value = undefined;
 
@@ -458,7 +458,7 @@ pub const JsContext = struct {
     pub fn exportOne(self: *JsContext, exports: napi.napi_value, comptime name: []const u8, val: anytype) Error!void {
         const c_name = name ++ "";
 
-        if (comptime @typeInfo(@TypeOf(val)) == .Fn) {
+        if (comptime @typeInfo(@TypeOf(val)) == .@"fn") {
             try self.setNamedProperty(exports, c_name, try self.createNamedFunction(c_name, val));
         } else {
             try self.setNamedProperty(exports, c_name, try self.write(val));
@@ -512,7 +512,7 @@ const GenerationalArena = struct {
 
 fn isString(comptime T: type) bool {
     return switch (@typeInfo(T)) {
-        .pointer => |ptr| ptr.size == .Slice and ptr.child == u8,
+        .pointer => |ptr| ptr.size == .slice and ptr.child == u8,
         else => return false,
     };
 }
