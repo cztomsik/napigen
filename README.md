@@ -161,7 +161,7 @@ zig init-lib
 **2. Add napigen as zig module.**
 
 ```
-zig fetch --save git+https://github.com/cztomsik/napigen#master
+zig fetch --save git+https://github.com/cztomsik/napigen#main
 ```
 
 **3. Update build.zig**
