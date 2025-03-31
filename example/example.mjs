@@ -10,8 +10,6 @@ console.log('1 + 2 =', native.add(1, 2))
 // Test our struct-based function
 const person = {
     name: 'John Doe',
-    // age: 30,
-    agex: 30,
 }
 
 console.log('Original person:', person)
