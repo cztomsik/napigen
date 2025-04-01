@@ -346,7 +346,7 @@ pub const JsContext = struct {
             .int, .comptime_int, .float, .comptime_float => self.readNumber(T, val),
             .@"enum" => std.meta.intToEnum(T, self.read(u32, val)),
             .@"struct" => if (isTuple(T)) self.readTuple(T, val) else self.readObject(T, val),
-            .optional => |info| if (try self.typeOf(val) == napi.napi_null) null else self.read(info.child, val),
+            .optional => |info| if (try self.typeOf(val) == napi.napi_null) null else try self.read(info.child, val),
             .pointer => |info| switch (info.size) {
                 .one, .c => self.unwrap(info.child, val),
                 .slice => self.readArray(info.child, val),
