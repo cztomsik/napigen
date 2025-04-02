@@ -11,5 +11,10 @@
         "README.md",
     },
 
-    .dependencies = .{},
+    .dependencies = .{
+        .node_api = .{
+            .url = "git+https://github.com/nodejs/node-api-headers?ref=main#d46edabd5bbacc08393578eb19fc2eba7021b597",
+            .hash = "N-V-__8AAASNAQA0UI0mvQk4LyFEhdFuFBPgH8HSokdFFpnz",
+        },
+    },
 }

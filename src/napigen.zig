@@ -1,6 +1,9 @@
 const root = @import("root");
 const std = @import("std");
-const napi = @import("napi.zig");
+
+const napi = @cImport({
+    @cInclude("node_api.h");
+});
 
 // export the whole napi
 pub usingnamespace napi;
