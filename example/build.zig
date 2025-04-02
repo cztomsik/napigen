@@ -1,4 +1,5 @@
 const std = @import("std");
+const napigen = @import("napigen");
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
@@ -11,12 +12,8 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    // Use weak-linkage
-    lib.linker_allow_shlib_undefined = true;
-
     // Add napigen
-    const napigen = b.dependency("napigen", .{});
-    lib.root_module.addImport("napigen", napigen.module("napigen"));
+    napigen.setup(lib);
 
     // Build the lib
     b.installArtifact(lib);

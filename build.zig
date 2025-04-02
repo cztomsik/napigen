@@ -13,12 +13,26 @@ pub fn build(b: *std.Build) !void {
 
     const node_api = b.dependency("node_api", .{});
     lib.addIncludePath(node_api.path("include"));
+}
 
-    if (target.result.os.tag == .windows) {
-        var node_api_lib = b.addSystemCommand(&.{ b.graph.zig_exe, "dlltool", "-m", "x86-64", "-D", "node.exe", "-l", "node.lib", "-d" });
-        node_api_lib.addFileArg(node_api.path("def/node_api.def"));
-        node_api_lib.cwd = b.path(".");
-        b.default_step.dependOn(&node_api_lib.step);
-        lib.linkSystemLibrary("node", .{});
+pub fn setup(lib: *std.Build.Step.Compile) void {
+    const b = lib.step.owner;
+    const napigen = b.dependencyFromBuildZig(@This(), .{});
+    const node_api = napigen.builder.dependency("node_api", .{});
+
+    lib.root_module.addImport("napigen", napigen.module("napigen"));
+
+    if (lib.root_module.resolved_target.?.result.os.tag == .windows) {
+        const node_lib = b.addSystemCommand(&.{ b.graph.zig_exe, "dlltool", "-m", "i386:x86-64", "-D", "node.exe", "-l", "node.lib", "-d" });
+        node_lib.addFileArg(node_api.path("def/node_api.def"));
+        // TODO: find a better way (this will end up outside of .zig-cache)
+        node_lib.cwd = .{ .cwd_relative = b.makeTempPath() };
+        lib.step.dependOn(&node_lib.step);
+
+        lib.addLibraryPath(node_lib.cwd.?);
+        lib.linkSystemLibrary("node");
+    } else {
+        // Use weak-linkage
+        lib.linker_allow_shlib_undefined = true;
     }
 }
