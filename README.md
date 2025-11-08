@@ -1,8 +1,10 @@
 # zig-napigen
 
+[![CI](https://github.com/cztomsik/napigen/workflows/CI/badge.svg)](https://github.com/cztomsik/napigen/actions)
+
 Comptime N-API bindings for Zig.
 
-> You need to use latest Zig 0.14.0 to use this library.
+> Tested with Zig 0.14.0 and 0.15.1. See the [CI workflow](.github/workflows/ci.yml) for details.
 >
 > See [ggml-js](https://github.com/cztomsik/ggml-js) for a complete, real-world
 > example.
