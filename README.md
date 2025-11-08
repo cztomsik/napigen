@@ -4,7 +4,7 @@
 
 Comptime N-API bindings for Zig.
 
-> Tested with Zig 0.14.0 and 0.15.1. See the [CI workflow](.github/workflows/ci.yml) for details.
+> Requires Zig 0.15.2 or later. See the [CI workflow](.github/workflows/ci.yml) for build status.
 >
 > See [ggml-js](https://github.com/cztomsik/ggml-js) for a complete, real-world
 > example.
