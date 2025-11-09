@@ -2,7 +2,7 @@
 
 Comptime N-API bindings for Zig.
 
-> You need to use latest Zig 0.14.0 to use this library.
+> Requires Zig 0.15.2 or later.
 >
 > See [ggml-js](https://github.com/cztomsik/ggml-js) for a complete, real-world
 > example.
@@ -13,8 +13,8 @@ Comptime N-API bindings for Zig.
 - Strings (valid for the function scope)
 - Struct pointers (see below)
 - Functions (no classes, see below)
-- all the `napi_xxx` functions and types are re-exported as `napigen.napi_xxx`,\
-  so you can do pretty much anything if you don't mind going lower-level.
+- Common napi types like `napi_value` are re-exported for convenience
+- All napi functions and types are accessible via `napigen.napi.xxx` for lower-level control
 
 ## Limited scope
 
@@ -176,11 +176,14 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const lib = b.addSharedLibrary(.{
+    const lib = b.addLibrary(.{
         .name = "example",
-        .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = optimize,
+        .linkage = .dynamic,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/main.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
     });
 
     // Add napigen

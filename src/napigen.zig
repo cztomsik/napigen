@@ -1,12 +1,18 @@
 const root = @import("root");
 const std = @import("std");
 
-const napi = @cImport({
+pub const napi = @cImport({
     @cInclude("node_api.h");
 });
 
-// export the whole napi
-pub usingnamespace napi;
+// Re-export commonly used napi types for convenience
+// Users can access all napi types/functions via napigen.napi.xxx
+pub const napi_value = napi.napi_value;
+pub const napi_env = napi.napi_env;
+pub const napi_status = napi.napi_status;
+pub const napi_ref = napi.napi_ref;
+pub const napi_callback_info = napi.napi_callback_info;
+pub const napi_valuetype = napi.napi_valuetype;
 
 // define error types
 pub const NapiError = error{ napi_invalid_arg, napi_object_expected, napi_string_expected, napi_name_expected, napi_function_expected, napi_number_expected, napi_boolean_expected, napi_array_expected, napi_generic_failure, napi_pending_exception, napi_cancelled, napi_escape_called_twice, napi_handle_scope_mismatch, napi_callback_scope_mismatch, napi_queue_full, napi_closing, napi_bigint_expected, napi_date_expected, napi_arraybuffer_expected, napi_detachable_arraybuffer_expected, napi_would_deadlock };
@@ -26,7 +32,7 @@ pub const allocator = std.heap.c_allocator;
 /// Convenience helper to define N-API module with a single function
 pub fn defineModule(comptime init_fn: fn (*JsContext, napi.napi_value) anyerror!napi.napi_value) void {
     const NapigenNapiModule = struct {
-        fn register(env: napi.napi_env, exports: napi.napi_value) callconv(.C) napi.napi_value {
+        fn register(env: napi.napi_env, exports: napi.napi_value) callconv(.c) napi.napi_value {
             var cx = JsContext.init(env) catch @panic("could not init JS context");
             return init_fn(cx, exports) catch |e| cx.throw(e);
         }
@@ -64,7 +70,7 @@ pub const JsContext = struct {
         return res;
     }
 
-    fn finalize(_: napi.napi_env, data: ?*anyopaque, _: ?*anyopaque) callconv(.C) void {
+    fn finalize(_: napi.napi_env, data: ?*anyopaque, _: ?*anyopaque) callconv(.c) void {
         // instance data might be already destroyed
         const self: *JsContext = @ptrCast(@alignCast(data));
         self.deinit();
@@ -316,7 +322,7 @@ pub const JsContext = struct {
         return res;
     }
 
-    fn deleteRef(env: napi.napi_env, _: ?*anyopaque, ptr: ?*anyopaque) callconv(.C) void {
+    fn deleteRef(env: napi.napi_env, _: ?*anyopaque, ptr: ?*anyopaque) callconv(.c) void {
         var js = JsContext.getInstance(env);
 
         if (js.refs.get(@intFromPtr(ptr.?))) |ref| {
@@ -398,7 +404,7 @@ pub const JsContext = struct {
         const Res = @typeInfo(F).@"fn".return_type.?;
 
         const Helper = struct {
-            fn call(env: napi.napi_env, cb_info: napi.napi_callback_info) callconv(.C) napi.napi_value {
+            fn call(env: napi.napi_env, cb_info: napi.napi_callback_info) callconv(.c) napi.napi_value {
                 var js = JsContext.getInstance(env);
                 js.arena.inc();
                 defer js.arena.dec();
