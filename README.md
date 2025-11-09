@@ -13,8 +13,8 @@ Comptime N-API bindings for Zig.
 - Strings (valid for the function scope)
 - Struct pointers (see below)
 - Functions (no classes, see below)
-- all the `napi_xxx` functions and types are re-exported as `napigen.napi_xxx`,\
-  so you can do pretty much anything if you don't mind going lower-level.
+- Common napi types like `napi_value` are re-exported for convenience
+- All napi functions and types are accessible via `napigen.napi.xxx` for lower-level control
 
 ## Limited scope
 

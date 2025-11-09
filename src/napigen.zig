@@ -1,12 +1,18 @@
 const root = @import("root");
 const std = @import("std");
 
-const napi = @cImport({
+pub const napi = @cImport({
     @cInclude("node_api.h");
 });
 
-// export the whole napi
-pub usingnamespace napi;
+// Re-export commonly used napi types for convenience
+// Users can access all napi types/functions via napigen.napi.xxx
+pub const napi_value = napi.napi_value;
+pub const napi_env = napi.napi_env;
+pub const napi_status = napi.napi_status;
+pub const napi_ref = napi.napi_ref;
+pub const napi_callback_info = napi.napi_callback_info;
+pub const napi_valuetype = napi.napi_valuetype;
 
 // define error types
 pub const NapiError = error{ napi_invalid_arg, napi_object_expected, napi_string_expected, napi_name_expected, napi_function_expected, napi_number_expected, napi_boolean_expected, napi_array_expected, napi_generic_failure, napi_pending_exception, napi_cancelled, napi_escape_called_twice, napi_handle_scope_mismatch, napi_callback_scope_mismatch, napi_queue_full, napi_closing, napi_bigint_expected, napi_date_expected, napi_arraybuffer_expected, napi_detachable_arraybuffer_expected, napi_would_deadlock };
