@@ -32,7 +32,7 @@ pub const allocator = std.heap.c_allocator;
 /// Convenience helper to define N-API module with a single function
 pub fn defineModule(comptime init_fn: fn (*JsContext, napi.napi_value) anyerror!napi.napi_value) void {
     const NapigenNapiModule = struct {
-        fn register(env: napi.napi_env, exports: napi.napi_value) callconv(.C) napi.napi_value {
+        fn register(env: napi.napi_env, exports: napi.napi_value) callconv(.c) napi.napi_value {
             var cx = JsContext.init(env) catch @panic("could not init JS context");
             return init_fn(cx, exports) catch |e| cx.throw(e);
         }
@@ -70,7 +70,7 @@ pub const JsContext = struct {
         return res;
     }
 
-    fn finalize(_: napi.napi_env, data: ?*anyopaque, _: ?*anyopaque) callconv(.C) void {
+    fn finalize(_: napi.napi_env, data: ?*anyopaque, _: ?*anyopaque) callconv(.c) void {
         // instance data might be already destroyed
         const self: *JsContext = @ptrCast(@alignCast(data));
         self.deinit();
@@ -322,7 +322,7 @@ pub const JsContext = struct {
         return res;
     }
 
-    fn deleteRef(env: napi.napi_env, _: ?*anyopaque, ptr: ?*anyopaque) callconv(.C) void {
+    fn deleteRef(env: napi.napi_env, _: ?*anyopaque, ptr: ?*anyopaque) callconv(.c) void {
         var js = JsContext.getInstance(env);
 
         if (js.refs.get(@intFromPtr(ptr.?))) |ref| {
@@ -404,7 +404,7 @@ pub const JsContext = struct {
         const Res = @typeInfo(F).@"fn".return_type.?;
 
         const Helper = struct {
-            fn call(env: napi.napi_env, cb_info: napi.napi_callback_info) callconv(.C) napi.napi_value {
+            fn call(env: napi.napi_env, cb_info: napi.napi_callback_info) callconv(.c) napi.napi_value {
                 var js = JsContext.getInstance(env);
                 js.arena.inc();
                 defer js.arena.dec();
