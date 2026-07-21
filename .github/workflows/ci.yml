@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
   workflow_dispatch:
 
 jobs:
@@ -17,20 +17,20 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Setup Zig
-      uses: goto-bus-stop/setup-zig@v2
-      with:
-        version: 0.15.2
+      - name: Setup Zig
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: 0.16.0
 
-    - name: Verify Zig installation
-      run: zig version
+      - name: Verify Zig installation
+        run: zig version
 
-    - name: Build
-      run: zig build
+      - name: Build
+        run: zig build
 
-    - name: Build example
-      run: zig build
-      working-directory: ./example
+      - name: Build example
+        run: zig build
+        working-directory: ./example

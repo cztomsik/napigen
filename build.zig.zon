@@ -1,7 +1,8 @@
 .{
     .name = .napigen,
     .fingerprint = 0xc5a96267ba889862,
-    .version = "0.1.0",
+    .version = "0.1.1",
+    .minimum_zig_version = "0.16.0",
 
     .paths = .{
         "build.zig",

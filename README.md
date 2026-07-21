@@ -2,7 +2,7 @@
 
 Comptime N-API bindings for Zig.
 
-> Requires Zig 0.15.2 or later.
+> Requires Zig 0.16.0 or later.
 >
 > See [ggml-js](https://github.com/cztomsik/ggml-js) for a complete, real-world
 > example.
